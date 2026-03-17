@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { QuoteDrawingCanvas } from "@/components/QuoteDrawingCanvas";
@@ -20,6 +20,14 @@ const TABS = ["Overview","Drawing","Line Items"] as const;
 type Tab = typeof TABS[number];
 
 export default function QuoteDetailPage({ params }: { params: { id: string } }) {
+  return (
+    <Suspense fallback={<div className="card text-center py-12" style={{color:"var(--text-muted)"}}>Loading…</div>}>
+      <QuoteDetailInner params={params} />
+    </Suspense>
+  );
+}
+
+function QuoteDetailInner({ params }: { params: { id: string } }) {
   const { data, mutate } = useSWR<{ quote: Quote }>(`/api/quotes/${params.id}`, fetcher);
   const { data: layoutData } = useSWR(`/api/quotes/${params.id}/drawing`, fetcher);
 
@@ -261,3 +269,4 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
     </div>
   );
 }
+
