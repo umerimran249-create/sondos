@@ -60,7 +60,7 @@ export default function DeliveriesPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ New Delivery</button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="stats-grid">
         {["not_ready","ready","out_for_delivery","delivered"].map(s=>(
           <div key={s} className="stat-card"><div className="stat-label">{s.replace(/_/g," ")}</div><div className="stat-value">{deliveries.filter(d=>d.status===s).length}</div></div>
         ))}
@@ -69,7 +69,7 @@ export default function DeliveriesPage() {
       {showForm && (
         <div className="card max-w-lg">
           <h2 className="text-sm font-semibold mb-4 text-white">New delivery</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             <div><label className="label">Delivery #</label><input className="input" required value={form.delivery_number} onChange={e=>setForm(f=>({...f,delivery_number:e.target.value}))} /></div>
             <div><label className="label">Driver Name</label><input className="input" value={form.driver_name} onChange={e=>setForm(f=>({...f,driver_name:e.target.value}))} /></div>
             <div className="col-span-2"><label className="label">Scheduled Date</label><input type="date" className="input" value={form.scheduled_date} onChange={e=>setForm(f=>({...f,scheduled_date:e.target.value}))} /></div>

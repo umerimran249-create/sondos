@@ -68,7 +68,7 @@ export default function JobsPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ New Job</button>
       </div>
 
-      <div className="grid grid-cols-5 gap-3">
+      <div className="pipeline-grid">
         {STAGES.map(stage => (
           <div key={stage} className="card text-center cursor-pointer" onClick={()=>setFilter(f=>f===stage?"all":stage)}
             style={{border:filter===stage?"1px solid var(--gold)":undefined}}>
@@ -81,7 +81,7 @@ export default function JobsPage() {
       {showForm && (
         <div className="card max-w-lg">
           <h2 className="text-sm font-semibold mb-4 text-white">New job</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             <div className="col-span-2"><label className="label">Job Number</label><input className="input" required value={form.job_number} onChange={e=>setForm(f=>({...f,job_number:e.target.value}))} /></div>
             <div className="col-span-2"><label className="label">Customer</label>
               <select className="input" value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value}))}>

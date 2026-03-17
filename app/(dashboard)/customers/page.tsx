@@ -67,7 +67,7 @@ export default function CustomersPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ Add Customer</button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="stats-grid-3">
         <div className="stat-card"><div className="stat-label">Total</div><div className="stat-value">{(data?.customers??[]).length}</div></div>
         <div className="stat-card"><div className="stat-label">Active</div><div className="stat-value" style={{color:"var(--gold)"}}>{(data?.customers??[]).filter(c=>c.status==="active").length}</div></div>
         <div className="stat-card"><div className="stat-label">Locked</div><div className="stat-value text-red-400">{(data?.customers??[]).filter(c=>c.is_locked).length}</div></div>
@@ -76,7 +76,7 @@ export default function CustomersPage() {
       {showForm && (
         <div className="card max-w-xl">
           <h2 className="text-sm font-semibold mb-4 text-white">New customer</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             <div><label className="label">Customer ID</label><input className="input" required value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value}))} /></div>
             <div><label className="label">Name</label><input className="input" required value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} /></div>
             <div><label className="label">Phone</label><input className="input" value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} /></div>

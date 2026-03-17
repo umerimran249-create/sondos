@@ -149,7 +149,7 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
 
       {/* ── OVERVIEW ── */}
       {tab === "Overview" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="page-grid">
           {/* Customer card */}
           <div className="card">
             <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{color:"var(--gold)"}}>Customer</h2>
@@ -192,7 +192,7 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
 
           {/* Notes */}
           {quote.notes && (
-            <div className="card lg:col-span-3">
+            <div className="card" style={{gridColumn:"1/-1"}}>
               <h2 className="text-xs font-semibold uppercase tracking-wider mb-2" style={{color:"var(--gold)"}}>Notes</h2>
               <p className="text-sm" style={{color:"var(--text-muted)"}}>{quote.notes}</p>
             </div>

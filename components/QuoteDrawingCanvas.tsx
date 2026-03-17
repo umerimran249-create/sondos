@@ -328,7 +328,8 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
 
     <style>{`@keyframes fadeInScale{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:scale(1)}}`}</style>
 
-    <div style={{display:"flex",height:580,borderRadius:10,overflow:"hidden",border:"1px solid #1a2438"}}>
+    <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch" as any}}>
+    <div style={{display:"flex",height:580,borderRadius:10,overflow:"hidden",border:"1px solid #1a2438",minWidth:680}}>
 
       {/* LEFT: tools */}
       <div style={{...S.panel, width:200,minWidth:200}}>
@@ -490,6 +491,7 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
           </div>
         )}
       </div>
+    </div>
     </div>
     </div>
   );

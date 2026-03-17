@@ -69,7 +69,7 @@ export default function ProductsPage() {
       {showForm && (
         <div className="card max-w-xl">
           <h2 className="text-sm font-semibold mb-4 text-white">New product</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             {[["product_id","Product ID",true],["product_name","Name",true],["sku","SKU",false],["color","Color",false],["country_of_origin","Country of Origin",false]].map(([k,l,req])=>(
               <div key={k as string}><label className="label">{l as string}</label><input className="input" required={!!req} value={(form as any)[k as string]} onChange={e=>setForm(f=>({...f,[k as string]:e.target.value}))} /></div>
             ))}

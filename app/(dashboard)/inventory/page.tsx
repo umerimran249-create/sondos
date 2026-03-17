@@ -68,7 +68,7 @@ export default function InventoryPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ Add Slab</button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="stats-grid-3">
         <div className="stat-card"><div className="stat-label">Total Slabs</div><div className="stat-value">{items.length}</div></div>
         <div className="stat-card"><div className="stat-label">Total Sqft</div><div className="stat-value" style={{color:"var(--gold)"}}>{totalSqft.toFixed(0)}</div></div>
         <div className="stat-card"><div className="stat-label">Available</div><div className="stat-value text-green-400">{items.filter(i=>i.status==="available").length}</div></div>
@@ -77,7 +77,7 @@ export default function InventoryPage() {
       {showForm && (
         <div className="card max-w-xl">
           <h2 className="text-sm font-semibold mb-4 text-white">Add slab</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             {[["inventory_id","Inventory ID",true],["lot_number","Lot #",false],["bundle_number","Bundle #",false],["barcode","Barcode",false]].map(([k,l,req])=>(
               <div key={k as string}><label className="label">{l as string}</label><input className="input" required={!!req} value={(form as any)[k as string]} onChange={e=>setForm(f=>({...f,[k as string]:e.target.value}))} /></div>
             ))}

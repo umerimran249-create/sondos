@@ -61,7 +61,7 @@ export default function PurchasingPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ New PO</button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="stats-grid">
         {["draft","sent","confirmed","received"].map(s=>(
           <div key={s} className="stat-card"><div className="stat-label capitalize">{s}</div><div className="stat-value">{pos.filter(p=>p.status===s).length}</div></div>
         ))}
@@ -70,7 +70,7 @@ export default function PurchasingPage() {
       {showForm && (
         <div className="card max-w-lg">
           <h2 className="text-sm font-semibold mb-4 text-white">New purchase order</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             <div><label className="label">PO Number</label><input className="input" required value={form.po_number} onChange={e=>setForm(f=>({...f,po_number:e.target.value}))} /></div>
             <div><label className="label">Supplier Name</label><input className="input" required value={form.supplier_name} onChange={e=>setForm(f=>({...f,supplier_name:e.target.value}))} /></div>
             <div><label className="label">Order Type</label>

@@ -59,7 +59,7 @@ export default function SalesOrdersPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ New Order</button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="stats-grid">
         {["pending","confirmed","in_production","delivered"].map(s=>(
           <div key={s} className="stat-card"><div className="stat-label capitalize">{s.replace("_"," ")}</div><div className="stat-value">{orders.filter(o=>o.status===s).length}</div></div>
         ))}
@@ -68,7 +68,7 @@ export default function SalesOrdersPage() {
       {showForm && (
         <div className="card max-w-lg">
           <h2 className="text-sm font-semibold mb-4 text-white">New order</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             <div className="col-span-2"><label className="label">Order #</label><input className="input" required value={form.order_number} onChange={e=>setForm(f=>({...f,order_number:e.target.value}))} /></div>
             <div><label className="label">Customer</label>
               <select className="input" value={form.customer_id} onChange={e=>setForm(f=>({...f,customer_id:e.target.value}))}>

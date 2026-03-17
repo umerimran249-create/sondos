@@ -67,7 +67,7 @@ export default function HoldsPage() {
         <button className="btn-primary" onClick={() => setShowForm(s=>!s)}>+ New Hold</button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="stats-grid-3">
         <div className="stat-card"><div className="stat-label">Active</div><div className="stat-value" style={{color:"var(--gold)"}}>{(data?.holds??[]).filter(h=>h.is_active).length}</div></div>
         <div className="stat-card"><div className="stat-label">Expiring Today</div><div className="stat-value text-red-400">{(data?.holds??[]).filter(h=>h.is_active&&h.expiry_date===today).length}</div></div>
         <div className="stat-card"><div className="stat-label">All Time</div><div className="stat-value">{(data?.holds??[]).length}</div></div>
@@ -76,7 +76,7 @@ export default function HoldsPage() {
       {showForm && (
         <div className="card max-w-lg">
           <h2 className="text-sm font-semibold mb-4 text-white">New hold</h2>
-          <form onSubmit={handleCreate} className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleCreate} className="grid form-grid gap-3">
             <div><label className="label">Hold ID</label><input className="input" required value={form.hold_id} onChange={e=>setForm(f=>({...f,hold_id:e.target.value}))} /></div>
             <div><label className="label">Expiry Date</label><input type="date" className="input" value={form.expiry_date} onChange={e=>setForm(f=>({...f,expiry_date:e.target.value}))} /></div>
             <div><label className="label">Customer</label>
