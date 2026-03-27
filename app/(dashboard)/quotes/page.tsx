@@ -20,7 +20,7 @@ export default function QuotesPage() {
   const { data, mutate } = useSWR<{ quotes: Quote[] }>("/api/quotes", fetcher);
   const { data: custData } = useSWR<{ customers: {id:string, name:string}[] }>("/api/customers", fetcher);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ quote_id:"", customer_id:"", notes:"" });
+  const [form, setForm] = useState({ customer_id:"", notes:"", payment_type:"prepaid" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const [filter, setFilter] = useState("all");
@@ -89,16 +89,25 @@ export default function QuotesPage() {
             After creating, you'll be taken directly to the Drawing Tool.
           </p>
           <form onSubmit={handleCreate} className="space-y-3">
-            <div>
-              <label className="label">Quote ID / Reference</label>
-              <input className="input" required placeholder="e.g. Q-2026-001"
-                value={form.quote_id} onChange={e => setForm(f=>({...f,quote_id:e.target.value}))} />
+            <div style={{padding:"8px 12px",background:"rgba(212,175,55,0.06)",borderRadius:8,border:"1px solid rgba(212,175,55,0.15)"}}>
+              <span style={{fontSize:11,color:"var(--text-muted)"}}>Quote ID will be auto-generated (e.g. </span>
+              <span style={{fontSize:11,color:"var(--gold)",fontWeight:600}}>Q-{new Date().getFullYear()}-XXXX</span>
+              <span style={{fontSize:11,color:"var(--text-muted)"}}>)</span>
             </div>
             <div>
               <label className="label">Customer</label>
               <select className="input" value={form.customer_id} onChange={e => setForm(f=>({...f,customer_id:e.target.value}))}>
                 <option value="">— select customer —</option>
                 {custData?.customers?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Payment Terms</label>
+              <select className="input" value={form.payment_type} onChange={e=>setForm(f=>({...f,payment_type:e.target.value}))}>
+                <option value="prepaid">Pre-Paid (50% deposit required)</option>
+                <option value="cod">COD — Cash on Delivery</option>
+                <option value="net30">Net 30</option>
+                <option value="net15">Net 15</option>
               </select>
             </div>
             <div>

@@ -18,6 +18,7 @@ const navItems = [
   { href: "/reports",      label: "Reports",      icon: "📊" },
   { href: "/drawing",      label: "Drawing Tool", icon: "✏️" },
   { href: "/settings",     label: "Settings",     icon: "⚙️" },
+  { href: "/catalog",      label: "Customer Catalog", icon: "🌐" },
 ];
 
 interface Props {

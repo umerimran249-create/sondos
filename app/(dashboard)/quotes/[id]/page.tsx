@@ -3,13 +3,13 @@
 import useSWR from "swr";
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { QuoteDrawingCanvas } from "@/components/QuoteDrawingCanvas";
 
 type QuoteItem = { id: string; description: string; quantity: number; unit_price: number; line_total: number };
 type Quote = {
   id: string; quote_id: string; quote_date: string; status: string;
-  total_amount: number; notes: string | null;
+  total_amount: number; notes: string | null; payment_type: string | null;
   customers: { id: string; name: string; email: string; phone: string } | null;
   quote_items: QuoteItem[];
 };
@@ -28,6 +28,7 @@ export default function QuoteDetailPage({ params }: { params: { id: string } }) 
 }
 
 function QuoteDetailInner({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const { data, mutate } = useSWR<{ quote: Quote }>(`/api/quotes/${params.id}`, fetcher);
   const { data: layoutData } = useSWR(`/api/quotes/${params.id}/drawing`, fetcher);
 
@@ -44,11 +45,29 @@ function QuoteDetailInner({ params }: { params: { id: string } }) {
   const [status, setStatus] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [popup, setPopup] = useState<{ ok: boolean; msg: string } | null>(null);
 
   function showPopup(ok: boolean, msg: string) {
     setPopup({ ok, msg });
     setTimeout(() => setPopup(null), 4000);
+  }
+
+  async function handleConvertToJob() {
+    if (!confirm("Convert this quote to a job? The quote will be marked as converted.")) return;
+    setConverting(true);
+    try {
+      const res = await fetch(`/api/quotes/${params.id}/convert-to-job`, { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Conversion failed");
+      showPopup(true, `Job ${j.job.job_number} created successfully! Redirecting to Jobs…`);
+      mutate();
+      setTimeout(() => router.push("/jobs"), 2500);
+    } catch (err: any) {
+      showPopup(false, err.message);
+    } finally {
+      setConverting(false);
+    }
   }
 
   const quote = data?.quote;
@@ -175,13 +194,38 @@ function QuoteDetailInner({ params }: { params: { id: string } }) {
           <div className="card">
             <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{color:"var(--gold)"}}>Quote Summary</h2>
             <div className="space-y-2">
-              {[["Quote ID",quote.quote_id],["Date",quote.quote_date],["Items",String(items.length)],["Total","$"+(quote.total_amount??0).toFixed(2)]].map(([l,v])=>(
+              {[
+                ["Quote ID", quote.quote_id],
+                ["Date", quote.quote_date],
+                ["Payment", quote.payment_type === "cod" ? "COD — Cash on Delivery" : quote.payment_type === "net30" ? "Net 30" : quote.payment_type === "net15" ? "Net 15" : "Pre-Paid"],
+                ["Items", String(items.length)],
+                ["Total", "$"+(quote.total_amount??0).toFixed(2)],
+              ].map(([l,v]) => (
                 <div key={l} className="flex justify-between">
                   <span className="text-sm" style={{color:"var(--text-muted)"}}>{l}</span>
                   <span className="text-sm font-medium text-white">{v}</span>
                 </div>
               ))}
             </div>
+
+            {/* Convert to Job */}
+            {quote.status !== "converted" && (
+              <button onClick={handleConvertToJob} disabled={converting}
+                style={{
+                  marginTop:16, width:"100%", padding:"9px", borderRadius:8,
+                  background:"linear-gradient(135deg,#22c55e,#16a34a)",
+                  border:"none", color:"white", fontWeight:700, fontSize:13,
+                  cursor:"pointer", opacity: converting ? 0.7 : 1,
+                }}>
+                {converting ? "Converting…" : "🔨 Convert to Job"}
+              </button>
+            )}
+            {quote.status === "converted" && (
+              <div style={{marginTop:12,padding:"8px 12px",background:"rgba(212,175,55,0.08)",borderRadius:8,textAlign:"center"}}>
+                <span style={{fontSize:12,color:"var(--gold)",fontWeight:600}}>✓ Converted to Job</span>
+                <Link href="/jobs" style={{display:"block",fontSize:11,color:"var(--text-muted)",marginTop:4,textDecoration:"none"}}>View Jobs →</Link>
+              </div>
+            )}
           </div>
 
           {/* Update status */}

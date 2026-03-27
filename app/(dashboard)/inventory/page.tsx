@@ -4,16 +4,31 @@ import useSWR from "swr";
 import { useState } from "react";
 import { EditModal } from "@/components/EditModal";
 
-type Item = { id:string; inventory_id:string; lot_number:string|null; bundle_number:string|null; barcode:string|null; quantity:number; sqft:number; status:string; products:{product_name:string;color:string|null}|null };
+type Item = { id:string; inventory_id:string; lot_number:string|null; bundle_number:string|null; barcode:string|null; quantity:number; sqft:number; slab_width:number|null; slab_height:number|null; slab_thickness:number|null; status:string; products:{product_name:string;color:string|null}|null };
 
 const fetcher = (url:string) => fetch(url).then(r=>r.json());
 const STATUS_COLOR: Record<string,string> = { available:"badge-green", on_hold:"badge-gold", sold:"badge-red", damaged:"badge-red", reserved:"badge-blue" };
+
+function colorDot(color:string) {
+  const c = color.toLowerCase();
+  if (c.includes("black")) return "#1a1a1a";
+  if (c.includes("white")) return "#f5f5f5";
+  if (c.includes("grey")||c.includes("gray")) return "#9ca3af";
+  if (c.includes("beige")||c.includes("cream")) return "#d4b896";
+  if (c.includes("brown")) return "#92400e";
+  if (c.includes("blue")) return "#3b82f6";
+  if (c.includes("green")) return "#22c55e";
+  if (c.includes("red")||c.includes("rosa")) return "#ef4444";
+  if (c.includes("gold")||c.includes("yellow")) return "#D4AF37";
+  if (c.includes("pink")) return "#f472b6";
+  return "#6b7280";
+}
 
 export default function InventoryPage() {
   const { data, mutate } = useSWR<{ inventory: Item[] }>("/api/inventory", fetcher);
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ inventory_id:"", lot_number:"", bundle_number:"", barcode:"", quantity:1, sqft:0 });
+  const [form, setForm] = useState({ inventory_id:"", lot_number:"", bundle_number:"", barcode:"", quantity:1, sqft:0, slab_width:0, slab_height:0, slab_thickness:0 });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string|null>(null);
   const [editing, setEditing] = useState<Item|null>(null);
@@ -52,12 +67,15 @@ export default function InventoryPage() {
       {editing && (
         <EditModal title={`Edit — ${editing.inventory_id}`}
           fields={[
-            { key:"inventory_id", label:"Inventory ID" },
-            { key:"lot_number",   label:"Lot #" },
-            { key:"bundle_number",label:"Bundle #" },
-            { key:"barcode",      label:"Barcode" },
-            { key:"quantity",     label:"Quantity", type:"number" },
-            { key:"sqft",         label:"Sqft",     type:"number" },
+            { key:"inventory_id",   label:"Inventory ID" },
+            { key:"lot_number",     label:"Lot #" },
+            { key:"bundle_number",  label:"Bundle #" },
+            { key:"barcode",        label:"Barcode" },
+            { key:"quantity",       label:"Quantity",   type:"number" },
+            { key:"sqft",           label:"Total Sqft", type:"number" },
+            { key:"slab_width",     label:"Width (in)", type:"number" },
+            { key:"slab_height",    label:"Height (in)",type:"number" },
+            { key:"slab_thickness", label:"Thickness (cm)",type:"number" },
             { key:"status", label:"Status", options:["available","on_hold","reserved","sold","damaged"] },
           ]}
           values={editing} onSave={handleEdit} onClose={() => setEditing(null)} />
@@ -82,7 +100,10 @@ export default function InventoryPage() {
               <div key={k as string}><label className="label">{l as string}</label><input className="input" required={!!req} value={(form as any)[k as string]} onChange={e=>setForm(f=>({...f,[k as string]:e.target.value}))} /></div>
             ))}
             <div><label className="label">Qty</label><input type="number" className="input" value={form.quantity} onChange={e=>setForm(f=>({...f,quantity:Number(e.target.value)}))} /></div>
-            <div><label className="label">Sqft</label><input type="number" className="input" value={form.sqft} onChange={e=>setForm(f=>({...f,sqft:Number(e.target.value)}))} /></div>
+            <div><label className="label">Total Sqft</label><input type="number" className="input" value={form.sqft} onChange={e=>setForm(f=>({...f,sqft:Number(e.target.value)}))} /></div>
+            <div><label className="label">Width (in)</label><input type="number" className="input" placeholder="e.g. 126" value={form.slab_width||""} onChange={e=>setForm(f=>({...f,slab_width:Number(e.target.value)}))} /></div>
+            <div><label className="label">Height (in)</label><input type="number" className="input" placeholder="e.g. 63" value={form.slab_height||""} onChange={e=>setForm(f=>({...f,slab_height:Number(e.target.value)}))} /></div>
+            <div><label className="label">Thickness (cm)</label><input type="number" className="input" placeholder="e.g. 2" value={form.slab_thickness||""} onChange={e=>setForm(f=>({...f,slab_thickness:Number(e.target.value)}))} /></div>
             {error && <p className="col-span-2 text-xs text-red-400">{error}</p>}
             <div className="col-span-2 flex gap-2">
               <button className="btn-primary" disabled={saving}>{saving?"Saving…":"Save"}</button>
@@ -99,12 +120,25 @@ export default function InventoryPage() {
         </div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>ID</th><th>Product</th><th>Lot / Bundle</th><th>Barcode</th><th className="text-right">Qty</th><th className="text-right">Sqft</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>ID</th><th>Product</th><th>Dimensions</th><th>Lot / Bundle</th><th>Barcode</th><th className="text-right">Qty</th><th className="text-right">Sqft</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {items.map(i => (
                 <tr key={i.id}>
                   <td className="font-mono text-xs" style={{color:"var(--gold)"}}>{i.inventory_id}</td>
-                  <td><div className="font-medium text-white">{i.products?.product_name ?? "—"}</div>{i.products?.color && <div className="text-xs" style={{color:"var(--text-muted)"}}>{i.products.color}</div>}</td>
+                  <td>
+                    <div className="font-medium text-white">{i.products?.product_name ?? "—"}</div>
+                    {i.products?.color && (
+                      <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2}}>
+                        <div style={{width:8,height:8,borderRadius:"50%",background:colorDot(i.products.color),flexShrink:0}} />
+                        <span className="text-xs" style={{color:"var(--text-muted)"}}>{i.products.color}</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="text-xs">
+                    {i.slab_width && i.slab_height
+                      ? <span style={{color:"var(--gold)",fontWeight:600}}>{i.slab_width}" × {i.slab_height}"{i.slab_thickness ? ` × ${i.slab_thickness}cm` : ""}</span>
+                      : <span style={{color:"var(--text-muted)"}}>—</span>}
+                  </td>
                   <td className="text-xs">{[i.lot_number,i.bundle_number].filter(Boolean).join(" / ") || "—"}</td>
                   <td className="text-xs font-mono">{i.barcode ?? "—"}</td>
                   <td className="text-right">{i.quantity}</td>

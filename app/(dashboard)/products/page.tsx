@@ -8,6 +8,21 @@ type Product = { id:string; product_id:string; product_name:string; sku:string|n
 
 const fetcher = (url:string) => fetch(url).then(r=>r.json());
 
+function colorDot(color:string) {
+  const c = color.toLowerCase();
+  if (c.includes("black")) return "#1a1a1a";
+  if (c.includes("white")) return "#f5f5f5";
+  if (c.includes("grey")||c.includes("gray")) return "#9ca3af";
+  if (c.includes("beige")||c.includes("cream")) return "#d4b896";
+  if (c.includes("brown")) return "#92400e";
+  if (c.includes("blue")) return "#3b82f6";
+  if (c.includes("green")) return "#22c55e";
+  if (c.includes("red")||c.includes("rosa")) return "#ef4444";
+  if (c.includes("gold")||c.includes("yellow")) return "#D4AF37";
+  if (c.includes("pink")) return "#f472b6";
+  return "#6b7280";
+}
+
 export default function ProductsPage() {
   const { data, mutate } = useSWR<{ products: Product[] }>("/api/products", fetcher);
   const [showForm, setShowForm] = useState(false);
@@ -105,7 +120,14 @@ export default function ProductsPage() {
                   <td style={{color:"var(--gold)"}} className="font-mono text-xs">{p.product_id}</td>
                   <td className="font-medium text-white">{p.product_name}</td>
                   <td className="text-xs">{p.sku ?? "—"}</td>
-                  <td className="text-xs">{p.color ?? "—"}</td>
+                  <td>
+                    {p.color ? (
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <div style={{width:10,height:10,borderRadius:"50%",background:colorDot(p.color),border:"1px solid rgba(255,255,255,0.2)",flexShrink:0}} />
+                        <span className="text-xs">{p.color}</span>
+                      </div>
+                    ) : <span className="text-xs">—</span>}
+                  </td>
                   <td className="text-xs">{p.country_of_origin ?? "—"}</td>
                   <td><span className="badge badge-gray capitalize">{p.product_group ?? "—"}</span></td>
                   <td className="text-right">${(p.base_cost??0).toFixed(2)}</td>
