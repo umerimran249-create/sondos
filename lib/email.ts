@@ -28,29 +28,7 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
   const gmailUser = process.env.GMAIL_USER;
   const gmailPass = process.env.GMAIL_APP_PASSWORD;
 
-  // ── 1. Resend ──────────────────────────────────────────────────────────────
-  if (resendKey) {
-    const resend = new Resend(resendKey);
-    const fromName = process.env.EMAIL_FROM_NAME || "SondosStone";
-    const fromEmail = process.env.EMAIL_FROM_ADDRESS || "onboarding@resend.dev"; // resend sandbox domain
-
-    const { error } = await resend.emails.send({
-      from: `${fromName} <${fromEmail}>`,
-      to: options.toName ? `${options.toName} <${options.to}>` : options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text || stripHtml(options.html),
-      attachments: options.attachments?.map(a => ({
-        filename: a.filename,
-        content: a.content,
-      })),
-    });
-
-    if (error) throw new Error(`Resend error: ${error.message}`);
-    return;
-  }
-
-  // ── 2. Gmail SMTP via Nodemailer ───────────────────────────────────────────
+  // ── 1. Gmail SMTP (preferred when configured — no recipient restrictions) ──
   if (gmailUser && gmailPass) {
     const fromName = process.env.EMAIL_FROM_NAME || "SondosStone";
     const transporter = nodemailer.createTransport({
@@ -73,8 +51,30 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
     return;
   }
 
+  // ── 2. Resend (requires verified domain for sending to others) ─────────────
+  if (resendKey) {
+    const resend = new Resend(resendKey);
+    const fromName = process.env.EMAIL_FROM_NAME || "SondosStone";
+    const fromEmail = process.env.EMAIL_FROM_ADDRESS || "onboarding@resend.dev"; // resend sandbox domain
+
+    const { error } = await resend.emails.send({
+      from: `${fromName} <${fromEmail}>`,
+      to: options.toName ? `${options.toName} <${options.to}>` : options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text || stripHtml(options.html),
+      attachments: options.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+      })),
+    });
+
+    if (error) throw new Error(`Resend error: ${error.message}`);
+    return;
+  }
+
   throw new Error(
-    "No email provider configured. Set RESEND_API_KEY (free at resend.com) or GMAIL_USER + GMAIL_APP_PASSWORD."
+    "No email provider configured. Set GMAIL_USER + GMAIL_APP_PASSWORD (recommended) or RESEND_API_KEY."
   );
 }
 
