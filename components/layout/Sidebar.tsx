@@ -17,7 +17,8 @@ const navItems = [
   { href: "/purchasing",   label: "Purchasing",   icon: "📥" },
   { href: "/reports",      label: "Reports",      icon: "📊" },
   { href: "/drawing",      label: "Drawing Tool", icon: "✏️" },
-  { href: "/settings",     label: "Settings",     icon: "⚙️" },
+  { href: "/settings",     label: "Settings",       icon: "⚙️" },
+  { href: "/email-logs",   label: "Email Logs",     icon: "📨" },
   { href: "/catalog",      label: "Customer Catalog", icon: "🌐" },
 ];
 

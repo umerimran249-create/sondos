@@ -1,36 +1,53 @@
-import nodemailer from "nodemailer";
+import Mailjet from "node-mailjet";
 
-export async function sendEmail(options: {
+export interface EmailOptions {
   to: string;
+  toName?: string;
   subject: string;
+  html: string;
   text?: string;
-  html?: string;
-  attachments?: { filename: string; content: Buffer }[];
-}) {
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || "Stone ERP <no-reply@example.com>";
-
-  if (!host || !user || !pass) {
-    throw new Error("SMTP is not configured");
-  }
-
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass }
-  });
-
-  await transporter.sendMail({
-    from,
-    to: options.to,
-    subject: options.subject,
-    text: options.text,
-    html: options.html,
-    attachments: options.attachments
-  });
+  attachments?: { filename: string; content: Buffer; contentType?: string }[];
 }
 
+export async function sendEmail(options: EmailOptions): Promise<void> {
+  const apiKey = process.env.MAILJET_API_KEY;
+  const secretKey = process.env.MAILJET_SECRET_KEY;
+  const fromEmail = process.env.MAILJET_FROM_EMAIL || "quotes@sondosstone.com";
+  const fromName = process.env.MAILJET_FROM_NAME || "SondosStone";
+
+  if (!apiKey || !secretKey) {
+    throw new Error("Mailjet API keys are not configured (MAILJET_API_KEY / MAILJET_SECRET_KEY)");
+  }
+
+  const mj = Mailjet.apiConnect(apiKey, secretKey);
+
+  const attachments = (options.attachments ?? []).map((a) => ({
+    ContentType: a.contentType || "application/octet-stream",
+    Filename: a.filename,
+    Base64Content: a.content.toString("base64"),
+  }));
+
+  const body: Record<string, unknown> = {
+    Messages: [
+      {
+        From: { Email: fromEmail, Name: fromName },
+        To: [{ Email: options.to, Name: options.toName || options.to }],
+        Subject: options.subject,
+        HTMLPart: options.html,
+        TextPart: options.text || stripHtml(options.html),
+        ...(attachments.length ? { Attachments: attachments } : {}),
+      },
+    ],
+  };
+
+  const result = await mj.post("send", { version: "v3.1" }).request(body);
+  const response = result.body as any;
+  const msgStatus = response?.Messages?.[0]?.Status;
+  if (msgStatus && msgStatus !== "success") {
+    throw new Error(`Mailjet send failed: ${JSON.stringify(response?.Messages?.[0]?.Errors ?? msgStatus)}`);
+  }
+}
+
+function stripHtml(html: string) {
+  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}

@@ -46,11 +46,32 @@ function QuoteDetailInner({ params }: { params: { id: string } }) {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [sending, setSending] = useState(false);
   const [popup, setPopup] = useState<{ ok: boolean; msg: string } | null>(null);
 
   function showPopup(ok: boolean, msg: string) {
     setPopup({ ok, msg });
     setTimeout(() => setPopup(null), 4000);
+  }
+
+  async function handleSendEmail() {
+    if (!quote?.customers?.email) {
+      showPopup(false, "No email address on the customer profile. Please add one first.");
+      return;
+    }
+    if (!confirm(`Send quotation ${quote.quote_id} to ${quote.customers.email}?`)) return;
+    setSending(true);
+    try {
+      const res = await fetch(`/api/quotes/${params.id}/send-email`, { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Send failed");
+      showPopup(true, `Email sent to ${quote.customers.email} ✓`);
+      mutate();
+    } catch (err: any) {
+      showPopup(false, err.message);
+    } finally {
+      setSending(false);
+    }
   }
 
   async function handleConvertToJob() {
@@ -160,7 +181,29 @@ function QuoteDetailInner({ params }: { params: { id: string } }) {
             </span>
           </div>
         </div>
-
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSendEmail}
+            disabled={sending}
+            style={{
+              display:"flex", alignItems:"center", gap:8,
+              padding:"9px 18px", borderRadius:9, fontWeight:700, fontSize:13,
+              background: sending ? "#1c1f26" : "linear-gradient(135deg,#D4AF37,#A88B20)",
+              color: sending ? "var(--text-muted)" : "#0b0d11",
+              border: sending ? "1px solid #2a2a2a" : "none",
+              cursor: sending ? "not-allowed" : "pointer",
+              transition:"all .2s",
+            }}
+          >
+            <span>{sending ? "⏳" : "📧"}</span>
+            {sending ? "Sending…" : "Send to Customer"}
+          </button>
+          <Link href="/email-logs" style={{
+            padding:"9px 14px", borderRadius:9, fontSize:12, fontWeight:600,
+            background:"var(--surface)", color:"var(--text-muted)",
+            border:"1px solid #2a2a2a", textDecoration:"none",
+          }}>Email Logs</Link>
+        </div>
       </div>
 
       {/* Tabs */}
