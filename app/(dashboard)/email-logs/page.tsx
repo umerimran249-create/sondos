@@ -149,20 +149,44 @@ export default function EmailLogsPage() {
         )}
       </div>
 
-      {/* Migration reminder */}
+      {/* Setup guide */}
       <div className="card" style={{ borderColor: "rgba(212,175,55,0.3)", background: "rgba(212,175,55,0.04)" }}>
-        <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--gold)" }}>⚠️ First-time setup</h3>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--gold)" }}>📧 Email Provider Setup (Free)</h3>
+
+        {/* Option 1 */}
+        <div style={{ background: "#1c1f26", borderRadius: 10, padding: "14px 16px", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e", padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700 }}>RECOMMENDED</span>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>Option 1 — Resend (3,000 free emails/month)</span>
+          </div>
+          <ol style={{ color: "#9ca3af", fontSize: 12, lineHeight: 2, margin: 0, paddingLeft: 18 }}>
+            <li>Go to <a href="https://resend.com" target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>resend.com</a> → sign up free</li>
+            <li>Go to <strong style={{ color: "#fff" }}>API Keys</strong> → Create API Key</li>
+            <li>Add to Vercel env vars: <code style={{ color: "#86efac" }}>RESEND_API_KEY = re_xxxxxxxxx</code></li>
+            <li>Add your verified domain OR use <code style={{ color: "#86efac" }}>onboarding@resend.dev</code> (sandbox)</li>
+          </ol>
+        </div>
+
+        {/* Option 2 */}
+        <div style={{ background: "#1c1f26", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ background: "rgba(96,165,250,0.15)", color: "#60a5fa", padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700 }}>FREE</span>
+            <span style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>Option 2 — Gmail SMTP (500 free emails/day)</span>
+          </div>
+          <ol style={{ color: "#9ca3af", fontSize: 12, lineHeight: 2, margin: 0, paddingLeft: 18 }}>
+            <li>Enable 2-Factor Authentication on your Google account</li>
+            <li>Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>myaccount.google.com/apppasswords</a></li>
+            <li>Create an App Password for "Mail"</li>
+            <li>Add to Vercel: <code style={{ color: "#86efac" }}>GMAIL_USER = your@gmail.com</code> and <code style={{ color: "#86efac" }}>GMAIL_APP_PASSWORD = xxxx xxxx xxxx xxxx</code></li>
+          </ol>
+        </div>
+
         <p className="text-xs mb-3" style={{ color: "var(--text-muted)", lineHeight: 1.7 }}>
-          If Email Logs shows no data after sending, the <code>email_logs</code> table may not exist yet.
-          Run the following SQL in your{" "}
-          <a
-            href="https://supabase.com/dashboard/project/gztldxsankbrglyauhnv/sql/new"
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: "var(--gold)" }}
-          >
+          Also run the following SQL in your{" "}
+          <a href="https://supabase.com/dashboard/project/gztldxsankbrglyauhnv/sql/new" target="_blank" rel="noreferrer" style={{ color: "var(--gold)" }}>
             Supabase SQL Editor
-          </a>:
+          </a>{" "}
+          if you haven&apos;t already:
         </p>
         <pre style={{
           background: "#0d0f14", border: "1px solid #2a2a2a", borderRadius: 8,

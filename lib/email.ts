@@ -1,4 +1,18 @@
-import Mailjet from "node-mailjet";
+/**
+ * Email utility — supports two free providers:
+ *
+ *  1. Resend (recommended — 3,000 free/month)
+ *     Set: RESEND_API_KEY
+ *
+ *  2. Gmail SMTP via Nodemailer (completely free — 500/day)
+ *     Set: GMAIL_USER  (your Gmail address)
+ *          GMAIL_APP_PASSWORD  (Google App Password — NOT your normal password)
+ *
+ * The system tries Resend first, then falls back to Gmail SMTP.
+ */
+
+import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
 export interface EmailOptions {
   to: string;
@@ -10,42 +24,58 @@ export interface EmailOptions {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<void> {
-  const apiKey = process.env.MAILJET_API_KEY;
-  const secretKey = process.env.MAILJET_SECRET_KEY;
-  const fromEmail = process.env.MAILJET_FROM_EMAIL || "quotes@sondosstone.com";
-  const fromName = process.env.MAILJET_FROM_NAME || "SondosStone";
+  const resendKey = process.env.RESEND_API_KEY;
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
 
-  if (!apiKey || !secretKey) {
-    throw new Error("Mailjet API keys are not configured (MAILJET_API_KEY / MAILJET_SECRET_KEY)");
+  // ── 1. Resend ──────────────────────────────────────────────────────────────
+  if (resendKey) {
+    const resend = new Resend(resendKey);
+    const fromName = process.env.EMAIL_FROM_NAME || "SondosStone";
+    const fromEmail = process.env.EMAIL_FROM_ADDRESS || "onboarding@resend.dev"; // resend sandbox domain
+
+    const { error } = await resend.emails.send({
+      from: `${fromName} <${fromEmail}>`,
+      to: options.toName ? `${options.toName} <${options.to}>` : options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text || stripHtml(options.html),
+      attachments: options.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+      })),
+    });
+
+    if (error) throw new Error(`Resend error: ${error.message}`);
+    return;
   }
 
-  const mj = Mailjet.apiConnect(apiKey, secretKey);
+  // ── 2. Gmail SMTP via Nodemailer ───────────────────────────────────────────
+  if (gmailUser && gmailPass) {
+    const fromName = process.env.EMAIL_FROM_NAME || "SondosStone";
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user: gmailUser, pass: gmailPass },
+    });
 
-  const attachments = (options.attachments ?? []).map((a) => ({
-    ContentType: a.contentType || "application/octet-stream",
-    Filename: a.filename,
-    Base64Content: a.content.toString("base64"),
-  }));
-
-  const body: Record<string, unknown> = {
-    Messages: [
-      {
-        From: { Email: fromEmail, Name: fromName },
-        To: [{ Email: options.to, Name: options.toName || options.to }],
-        Subject: options.subject,
-        HTMLPart: options.html,
-        TextPart: options.text || stripHtml(options.html),
-        ...(attachments.length ? { Attachments: attachments } : {}),
-      },
-    ],
-  };
-
-  const result = await mj.post("send", { version: "v3.1" }).request(body);
-  const response = result.body as any;
-  const msgStatus = response?.Messages?.[0]?.Status;
-  if (msgStatus && msgStatus !== "success") {
-    throw new Error(`Mailjet send failed: ${JSON.stringify(response?.Messages?.[0]?.Errors ?? msgStatus)}`);
+    await transporter.sendMail({
+      from: `"${fromName}" <${gmailUser}>`,
+      to: options.toName ? `"${options.toName}" <${options.to}>` : options.to,
+      subject: options.subject,
+      html: options.html,
+      text: options.text || stripHtml(options.html),
+      attachments: options.attachments?.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        contentType: a.contentType,
+      })),
+    });
+    return;
   }
+
+  throw new Error(
+    "No email provider configured. Set RESEND_API_KEY (free at resend.com) or GMAIL_USER + GMAIL_APP_PASSWORD."
+  );
 }
 
 function stripHtml(html: string) {
