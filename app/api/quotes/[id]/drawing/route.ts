@@ -43,13 +43,27 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     await supabaseAdmin.from("quote_items").delete().eq("quote_id", params.id);
     const items = body.shapes
       .filter((s: any) => s.kind !== "cutout" || s.cutouts > 0)
-      .map((s: any) => ({
-        quote_id: params.id,
-        description: `${s.label} (${s.kind}) — ${s.sqft.toFixed(2)} sqft, ${s.perimLf.toFixed(2)} lf`,
-        quantity: 1,
-        unit_price: s.shapeCost ?? 0,
-        line_total: s.shapeCost ?? 0,
-      }));
+      .map((s: any) => {
+        // Build a human-readable description that includes product, dimensions and add-ons
+        const kindLabel = (s.kind as string).charAt(0).toUpperCase() + (s.kind as string).slice(1);
+        const productPart = s.productName
+          ? ` — ${s.productName}${s.productColor ? ` (${s.productColor})` : ""}`
+          : "";
+        const dimPart = `${Number(s.sqft).toFixed(2)} sqft · ${Number(s.perimLf).toFixed(2)} lf`;
+        const addons: string[] = [];
+        if (s.corners  > 0) addons.push(`${s.corners} corner${s.corners  !== 1 ? "s" : ""}`);
+        if (s.cutouts  > 0) addons.push(`${s.cutouts} sink cutout${s.cutouts  !== 1 ? "s" : ""}`);
+        if (s.hasBack && s.backLf > 0) addons.push(`${Number(s.backLf).toFixed(2)} lf backsplash`);
+        const addonPart = addons.length ? ` | ${addons.join(", ")}` : "";
+
+        return {
+          quote_id: params.id,
+          description: `${s.label} (${kindLabel})${productPart} · ${dimPart}${addonPart}`,
+          quantity: 1,
+          unit_price: s.shapeCost ?? 0,
+          line_total: s.shapeCost ?? 0,
+        };
+      });
     if (items.length) await supabaseAdmin.from("quote_items").insert(items);
     await supabaseAdmin.from("quotes")
       .update({ total_amount: body.totalCost ?? 0 })

@@ -1,22 +1,24 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendEmail } from "@/lib/email";
+import { randomUUID } from "crypto";
 
 type Params = { id: string };
 
-// Build a professional HTML quotation email
 function buildQuoteHtml(q: {
   quote_id: string;
   customer_name: string;
-  customer_email: string;
   quote_date: string;
   payment_type: string | null;
   notes: string | null;
   items: { description: string; quantity: number; unit_price: number; line_total: number }[];
   total_amount: number;
+  accept_url: string;
+  reject_url: string;
+  has_drawing: boolean;
 }) {
   const paymentLabel =
-    q.payment_type === "cod" ? "COD — Cash on Delivery"
+    q.payment_type === "cod"   ? "COD — Cash on Delivery"
     : q.payment_type === "net30" ? "Net 30"
     : q.payment_type === "net15" ? "Net 15"
     : "Pre-Paid";
@@ -28,6 +30,17 @@ function buildQuoteHtml(q: {
       <td style="padding:10px 14px;border-bottom:1px solid #2a2a2a;color:#e5e7eb;text-align:right;">$${(item.unit_price ?? 0).toFixed(2)}</td>
       <td style="padding:10px 14px;border-bottom:1px solid #2a2a2a;color:#D4AF37;font-weight:700;text-align:right;">$${(item.line_total ?? 0).toFixed(2)}</td>
     </tr>`).join("");
+
+  const drawingSection = q.has_drawing ? `
+        <!-- Drawing -->
+        <tr>
+          <td style="padding:0 32px 24px;">
+            <h3 style="color:#D4AF37;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:0 0 12px;">Layout Drawing</h3>
+            <div style="border:1px solid #2a2a2a;border-radius:10px;overflow:hidden;background:#0a1221;text-align:center;padding:8px;">
+              <img src="cid:drawing@sondosstone" alt="Countertop Layout Drawing" style="max-width:100%;height:auto;border-radius:6px;display:block;margin:0 auto;" />
+            </div>
+          </td>
+        </tr>` : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -74,6 +87,8 @@ function buildQuoteHtml(q: {
             </table>
           </td>
         </tr>
+
+        ${drawingSection}
 
         <!-- Line Items -->
         <tr>
@@ -122,6 +137,34 @@ function buildQuoteHtml(q: {
           </td>
         </tr>` : ""}
 
+        <!-- Accept / Reject -->
+        <tr>
+          <td style="padding:0 32px 32px;">
+            <div style="background:#1c1f26;border-radius:12px;padding:24px;text-align:center;">
+              <p style="color:#9ca3af;font-size:13px;margin:0 0 20px;line-height:1.6;">
+                Please review the quotation above and let us know your decision.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                <tr>
+                  <td style="padding:0 8px 0 0;">
+                    <a href="${q.accept_url}" style="display:inline-block;background:linear-gradient(135deg,#22c55e,#16a34a);color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 32px;border-radius:10px;letter-spacing:0.3px;">
+                      ✓ &nbsp;Accept Quote
+                    </a>
+                  </td>
+                  <td style="padding:0 0 0 8px;">
+                    <a href="${q.reject_url}" style="display:inline-block;background:linear-gradient(135deg,#ef4444,#dc2626);color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 32px;border-radius:10px;letter-spacing:0.3px;">
+                      ✕ &nbsp;Reject Quote
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#6b7280;font-size:11px;margin:16px 0 0;">
+                Clicking a button will record your response and notify the SondosStone team.
+              </p>
+            </div>
+          </td>
+        </tr>
+
         <!-- Footer -->
         <tr>
           <td style="background:#0d0f14;padding:20px 32px;text-align:center;border-top:1px solid #2a2a2a;">
@@ -166,16 +209,55 @@ export async function POST(req: Request, { params }: { params: Params }) {
     return NextResponse.json({ error: "Customer email is missing — please add an email to the customer profile." }, { status: 400 });
   }
 
+  // Fetch layout for canvas image
+  const { data: layout } = await supabaseAdmin
+    .from("layouts")
+    .select("layout_data")
+    .eq("quote_id", quoteId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  const canvasImageDataUrl: string | null = layout?.layout_data?.canvas_image ?? null;
+
+  // Generate a unique response token and save it to the quote
+  const responseToken = randomUUID();
+  await supabaseAdmin.from("quotes").update({ quote_token: responseToken }).eq("id", quoteId);
+
+  // Build accept/reject URLs
+  const origin = new URL(req.url).origin;
+  const acceptUrl = `${origin}/api/quotes/respond?token=${responseToken}&action=accept`;
+  const rejectUrl = `${origin}/api/quotes/respond?token=${responseToken}&action=reject`;
+
+  // Build the email HTML
   const html = buildQuoteHtml({
     quote_id: quote.quote_id,
     customer_name: customerName,
-    customer_email: customerEmail,
     quote_date: quote.quote_date ?? new Date().toISOString().split("T")[0],
     payment_type: (quote as any).payment_type ?? null,
     notes: quote.notes ?? null,
     items: (items ?? []) as any,
     total_amount: quote.total_amount ?? 0,
+    accept_url: acceptUrl,
+    reject_url: rejectUrl,
+    has_drawing: !!canvasImageDataUrl,
   });
+
+  // Prepare attachments: inline canvas image if available
+  const attachments: { filename: string; content: Buffer; contentType: string; cid: string }[] = [];
+  if (canvasImageDataUrl) {
+    try {
+      const base64Data = canvasImageDataUrl.split(",")[1];
+      if (base64Data) {
+        attachments.push({
+          filename: "layout-drawing.png",
+          content: Buffer.from(base64Data, "base64"),
+          contentType: "image/png",
+          cid: "drawing@sondosstone",
+        });
+      }
+    } catch {}
+  }
 
   let emailError: string | null = null;
   let emailStatus: "sent" | "failed" = "sent";
@@ -186,13 +268,14 @@ export async function POST(req: Request, { params }: { params: Params }) {
       toName: customerName,
       subject: `Quotation ${quote.quote_id} — SondosStone`,
       html,
+      attachments: attachments.length ? attachments : undefined,
     });
   } catch (err: any) {
     emailError = err.message ?? "Unknown error";
     emailStatus = "failed";
   }
 
-  // ── Log to email_logs table ──
+  // Log to email_logs
   await supabaseAdmin.from("email_logs").insert({
     quote_id: quoteId,
     quote_ref: quote.quote_id,
@@ -203,13 +286,12 @@ export async function POST(req: Request, { params }: { params: Params }) {
     error_message: emailError,
     sent_at: new Date().toISOString(),
   }).then(({ error }) => {
-    // If table doesn't exist yet, ignore — we'll ask user to run migration
     if (error && !error.message.includes("email_logs")) {
       console.error("email_logs insert error:", error.message);
     }
   });
 
-  // If email sent successfully, update quote status to "sent"
+  // Update quote status to "sent" if it was draft
   if (emailStatus === "sent" && quote.status === "draft") {
     await supabaseAdmin.from("quotes").update({ status: "sent" }).eq("id", quoteId);
   }

@@ -12,7 +12,7 @@ export interface EmailOptions {
   subject: string;
   html: string;
   text?: string;
-  attachments?: { filename: string; content: Buffer; contentType?: string }[];
+  attachments?: { filename: string; content: Buffer; contentType?: string; cid?: string }[];
 }
 
 export async function sendEmail(options: EmailOptions): Promise<void> {
@@ -39,6 +39,7 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
       filename: a.filename,
       content: a.content,
       contentType: a.contentType,
+      cid: a.cid,
     })),
   });
 }
