@@ -25,18 +25,18 @@ function buildQuoteHtml(q: {
 
   const rows = q.items.map((item) => `
     <tr>
-      <td style="padding:10px 14px;border-bottom:1px solid #2a2a2a;color:#e5e7eb;">${item.description}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #2a2a2a;color:#e5e7eb;text-align:center;">${item.quantity}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #2a2a2a;color:#e5e7eb;text-align:right;">$${(item.unit_price ?? 0).toFixed(2)}</td>
-      <td style="padding:10px 14px;border-bottom:1px solid #2a2a2a;color:#D4AF37;font-weight:700;text-align:right;">$${(item.line_total ?? 0).toFixed(2)}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#374151;">${item.description}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#374151;text-align:center;">${item.quantity}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#374151;text-align:right;">$${(item.unit_price ?? 0).toFixed(2)}</td>
+      <td style="padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#b8860b;font-weight:700;text-align:right;">$${(item.line_total ?? 0).toFixed(2)}</td>
     </tr>`).join("");
 
   const drawingSection = q.has_drawing ? `
         <!-- Drawing -->
         <tr>
           <td style="padding:0 32px 24px;">
-            <h3 style="color:#D4AF37;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:0 0 12px;">Layout Drawing</h3>
-            <div style="border:1px solid #2a2a2a;border-radius:10px;overflow:hidden;background:#0a1221;text-align:center;padding:8px;">
+            <h3 style="color:#b8860b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:0 0 12px;">Layout Drawing</h3>
+            <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#f8fafc;text-align:center;padding:8px;">
               <img src="cid:drawing@sondosstone" alt="Countertop Layout Drawing" style="max-width:100%;height:auto;border-radius:6px;display:block;margin:0 auto;" />
             </div>
           </td>
@@ -45,24 +45,24 @@ function buildQuoteHtml(q: {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#0b0d11;font-family:'Segoe UI',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0b0d11;padding:30px 0;">
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:30px 0;">
     <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#13151a;border-radius:16px;overflow:hidden;border:1px solid #2a2a2a;">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">
 
         <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#D4AF37,#A88B20);padding:28px 32px;">
-            <h1 style="margin:0;color:#0b0d11;font-size:22px;font-weight:800;letter-spacing:-0.5px;">SondosStone</h1>
-            <p style="margin:4px 0 0;color:#0b0d11;font-size:13px;opacity:0.75;">Countertop Fabrication · ERP System</p>
+            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;">SondosStone</h1>
+            <p style="margin:4px 0 0;color:#ffffff;font-size:13px;opacity:0.85;">Countertop Fabrication · ERP System</p>
           </td>
         </tr>
 
         <!-- Title -->
         <tr>
           <td style="padding:28px 32px 0;">
-            <h2 style="margin:0;color:#ffffff;font-size:18px;font-weight:700;">Quotation ${q.quote_id}</h2>
-            <p style="margin:6px 0 0;color:#9ca3af;font-size:13px;">Dear ${q.customer_name}, please find your quotation details below.</p>
+            <h2 style="margin:0;color:#111827;font-size:18px;font-weight:700;">Quotation ${q.quote_id}</h2>
+            <p style="margin:6px 0 0;color:#6b7280;font-size:13px;">Dear ${q.customer_name}, please find your quotation details below.</p>
           </td>
         </tr>
 
@@ -72,15 +72,15 @@ function buildQuoteHtml(q: {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td width="50%" style="padding:0 8px 0 0;">
-                  <div style="background:#1c1f26;border-radius:10px;padding:14px 16px;">
-                    <div style="color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Quote Date</div>
-                    <div style="color:#fff;font-size:14px;font-weight:600;">${q.quote_date}</div>
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;">
+                    <div style="color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Quote Date</div>
+                    <div style="color:#111827;font-size:14px;font-weight:600;">${q.quote_date}</div>
                   </div>
                 </td>
                 <td width="50%" style="padding:0 0 0 8px;">
-                  <div style="background:#1c1f26;border-radius:10px;padding:14px 16px;">
-                    <div style="color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Payment Terms</div>
-                    <div style="color:#D4AF37;font-size:14px;font-weight:700;">${paymentLabel}</div>
+                  <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;">
+                    <div style="color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Payment Terms</div>
+                    <div style="color:#b8860b;font-size:14px;font-weight:700;">${paymentLabel}</div>
                   </div>
                 </td>
               </tr>
@@ -93,18 +93,18 @@ function buildQuoteHtml(q: {
         <!-- Line Items -->
         <tr>
           <td style="padding:0 32px 8px;">
-            <h3 style="color:#D4AF37;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:0 0 12px;">Line Items</h3>
-            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #2a2a2a;border-radius:10px;overflow:hidden;">
+            <h3 style="color:#b8860b;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin:0 0 12px;">Line Items</h3>
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
               <thead>
-                <tr style="background:#1c1f26;">
-                  <th style="padding:10px 14px;color:#9ca3af;font-size:11px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;">Description</th>
-                  <th style="padding:10px 14px;color:#9ca3af;font-size:11px;font-weight:600;text-align:center;text-transform:uppercase;letter-spacing:.5px;">Qty</th>
-                  <th style="padding:10px 14px;color:#9ca3af;font-size:11px;font-weight:600;text-align:right;text-transform:uppercase;letter-spacing:.5px;">Unit Price</th>
-                  <th style="padding:10px 14px;color:#9ca3af;font-size:11px;font-weight:600;text-align:right;text-transform:uppercase;letter-spacing:.5px;">Total</th>
+                <tr style="background:#f8fafc;">
+                  <th style="padding:10px 14px;color:#6b7280;font-size:11px;font-weight:600;text-align:left;text-transform:uppercase;letter-spacing:.5px;">Description</th>
+                  <th style="padding:10px 14px;color:#6b7280;font-size:11px;font-weight:600;text-align:center;text-transform:uppercase;letter-spacing:.5px;">Qty</th>
+                  <th style="padding:10px 14px;color:#6b7280;font-size:11px;font-weight:600;text-align:right;text-transform:uppercase;letter-spacing:.5px;">Unit Price</th>
+                  <th style="padding:10px 14px;color:#6b7280;font-size:11px;font-weight:600;text-align:right;text-transform:uppercase;letter-spacing:.5px;">Total</th>
                 </tr>
               </thead>
               <tbody>
-                ${rows || `<tr><td colspan="4" style="padding:20px;text-align:center;color:#6b7280;font-size:13px;">No line items</td></tr>`}
+                ${rows || `<tr><td colspan="4" style="padding:20px;text-align:center;color:#9ca3af;font-size:13px;">No line items</td></tr>`}
               </tbody>
             </table>
           </td>
@@ -116,9 +116,9 @@ function buildQuoteHtml(q: {
             <table width="100%" cellpadding="0" cellspacing="0">
               <tr>
                 <td align="right">
-                  <div style="display:inline-block;background:linear-gradient(135deg,rgba(212,175,55,0.15),rgba(168,139,32,0.1));border:1px solid #D4AF37;border-radius:10px;padding:14px 24px;text-align:right;">
-                    <div style="color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Grand Total</div>
-                    <div style="color:#D4AF37;font-size:24px;font-weight:800;margin-top:4px;">$${(q.total_amount ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</div>
+                  <div style="display:inline-block;background:#fffbeb;border:1px solid #D4AF37;border-radius:10px;padding:14px 24px;text-align:right;">
+                    <div style="color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">Grand Total</div>
+                    <div style="color:#b8860b;font-size:24px;font-weight:800;margin-top:4px;">$${(q.total_amount ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</div>
                   </div>
                 </td>
               </tr>
@@ -130,9 +130,9 @@ function buildQuoteHtml(q: {
         <!-- Notes -->
         <tr>
           <td style="padding:0 32px 24px;">
-            <div style="background:#1c1f26;border-left:3px solid #D4AF37;border-radius:0 8px 8px 0;padding:14px 16px;">
-              <div style="color:#9ca3af;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Notes</div>
-              <p style="color:#e5e7eb;font-size:13px;margin:0;line-height:1.6;">${q.notes}</p>
+            <div style="background:#fffbeb;border-left:3px solid #D4AF37;border-radius:0 8px 8px 0;padding:14px 16px;">
+              <div style="color:#6b7280;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Notes</div>
+              <p style="color:#374151;font-size:13px;margin:0;line-height:1.6;">${q.notes}</p>
             </div>
           </td>
         </tr>` : ""}
@@ -140,8 +140,8 @@ function buildQuoteHtml(q: {
         <!-- Accept / Reject -->
         <tr>
           <td style="padding:0 32px 32px;">
-            <div style="background:#1c1f26;border-radius:12px;padding:24px;text-align:center;">
-              <p style="color:#9ca3af;font-size:13px;margin:0 0 20px;line-height:1.6;">
+            <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;padding:24px;text-align:center;">
+              <p style="color:#6b7280;font-size:13px;margin:0 0 20px;line-height:1.6;">
                 Please review the quotation above and let us know your decision.
               </p>
               <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
@@ -158,7 +158,7 @@ function buildQuoteHtml(q: {
                   </td>
                 </tr>
               </table>
-              <p style="color:#6b7280;font-size:11px;margin:16px 0 0;">
+              <p style="color:#9ca3af;font-size:11px;margin:16px 0 0;">
                 Clicking a button will record your response and notify the SondosStone team.
               </p>
             </div>
@@ -167,9 +167,9 @@ function buildQuoteHtml(q: {
 
         <!-- Footer -->
         <tr>
-          <td style="background:#0d0f14;padding:20px 32px;text-align:center;border-top:1px solid #2a2a2a;">
-            <p style="color:#6b7280;font-size:12px;margin:0;">
-              This is an automated quote from <strong style="color:#D4AF37;">SondosStone ERP</strong>.<br>
+          <td style="background:#f8fafc;padding:20px 32px;text-align:center;border-top:1px solid #e5e7eb;">
+            <p style="color:#9ca3af;font-size:12px;margin:0;">
+              This is an automated quote from <strong style="color:#b8860b;">SondosStone ERP</strong>.<br>
               For questions, please reply to this email or contact your sales representative.
             </p>
           </td>
