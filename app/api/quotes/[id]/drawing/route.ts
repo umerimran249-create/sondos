@@ -49,7 +49,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         const productPart = s.productName
           ? ` — ${s.productName}${s.productColor ? ` (${s.productColor})` : ""}`
           : "";
-        const dimPart = `${Number(s.sqft).toFixed(2)} sqft · ${Number(s.perimLf).toFixed(2)} lf`;
+        const wIn = Number(s.widthFt  * 12).toFixed(1);
+        const hIn = Number(s.heightFt * 12).toFixed(1);
+        const pIn = Number(s.perimLf  * 12).toFixed(1);
+        const dimPart = `${wIn}" × ${hIn}" · ${Number(s.sqft).toFixed(2)} sqft · ${pIn}" perimeter`;
         const addons: string[] = [];
         if (s.corners  > 0) addons.push(`${s.corners} corner${s.corners  !== 1 ? "s" : ""}`);
         if (s.cutouts  > 0) addons.push(`${s.cutouts} sink cutout${s.cutouts  !== 1 ? "s" : ""}`);

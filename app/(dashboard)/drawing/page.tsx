@@ -19,14 +19,10 @@ function polyPerim(pts: {x:number,y:number}[]) {
   return p;
 }
 
-/** Convert canvas pixels → feet/inches label  e.g. "2' 6\"" */
-function fmtFeet(px: number): string {
-  const ft = Math.abs(px) / PPF;
-  const wholeFt = Math.floor(ft);
-  const inches  = Math.round((ft - wholeFt) * 12);
-  if (wholeFt === 0) return `${inches}"`;
-  if (inches  === 0) return `${wholeFt}'`;
-  return `${wholeFt}' ${inches}"`;
+/** Convert canvas pixels → inches label  e.g. "30\"" */
+function fmtInches(px: number): string {
+  const inches = Math.abs(px) / PPF * 12;
+  return `${Number(inches.toFixed(1))}"`;
 }
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -168,8 +164,8 @@ export default function DrawingPage() {
     const old = dimLabelsRef.current[id];
     if (old) { try { c.remove(old.wObj); c.remove(old.hObj); } catch {} }
     const br   = getShapeBounds(obj);
-    const wObj = makeDimText(`W: ${fmtFeet(br.width)}`,  br.left + br.width/2,         Math.max(br.top - 16, 12));
-    const hObj = makeDimText(`H: ${fmtFeet(br.height)}`, br.left + br.width/2,         br.top + br.height + 16);
+    const wObj = makeDimText(`W: ${fmtInches(br.width)}`,  br.left + br.width/2,         Math.max(br.top - 16, 12));
+    const hObj = makeDimText(`H: ${fmtInches(br.height)}`, br.left + br.width/2,         br.top + br.height + 16);
     if (!wObj || !hObj) return;
     c.add(wObj); c.add(hObj);
     try { (c.bringToFront||c.bringObjectToFront).call(c,wObj); (c.bringToFront||c.bringObjectToFront).call(c,hObj); } catch {}
@@ -183,8 +179,8 @@ export default function DrawingPage() {
     if (!labels) { createDimLabels(id, obj); return; }
     const br = getShapeBounds(obj);
     try {
-      labels.wObj.set({ text:`W: ${fmtFeet(br.width)}`,  left:br.left+br.width/2, top:Math.max(br.top-16,12) });
-      labels.hObj.set({ text:`H: ${fmtFeet(br.height)}`, left:br.left+br.width/2, top:br.top+br.height+16 });
+      labels.wObj.set({ text:`W: ${fmtInches(br.width)}`,  left:br.left+br.width/2, top:Math.max(br.top-16,12) });
+      labels.hObj.set({ text:`H: ${fmtInches(br.height)}`, left:br.left+br.width/2, top:br.top+br.height+16 });
     } catch {}
     c.renderAll();
   }
@@ -568,7 +564,7 @@ export default function DrawingPage() {
             <div key={m.id} onClick={()=>{setSelId(m.id);const obj=shapesRef.current[m.id];if(obj&&cRef.current){cRef.current.setActiveObject(obj);cRef.current.renderAll();}}}
               style={{padding:"5px 8px",borderRadius:5,marginBottom:3,cursor:"pointer",background:selId===m.id?"rgba(34,197,94,0.1)":"transparent",border:`1px solid ${selId===m.id?"#22c55e":"transparent"}`}}>
               <div style={{fontSize:12,color:"#e2e8f0",fontWeight:500}}>{m.label}</div>
-              <div style={{fontSize:10,color:"#475569"}}>{m.widthFt.toFixed(2)} ft × {m.heightFt.toFixed(2)} ft · {m.sqft.toFixed(2)} sqft</div>
+              <div style={{fontSize:10,color:"#475569"}}>{(m.widthFt*12).toFixed(1)}" × {(m.heightFt*12).toFixed(1)}" · {m.sqft.toFixed(2)} sqft</div>
             </div>
           ))}
         </div>
@@ -595,7 +591,7 @@ export default function DrawingPage() {
           <div><div style={S.statLbl}>Total Area</div><div style={S.statVal}>{totSqft.toFixed(2)} sqft</div></div>
           <div><div style={S.statLbl}>Shapes</div><div style={S.statVal}>{Object.keys(metas).length}</div></div>
           <div><div style={S.statLbl}>Est. Job Cost</div><div style={{...S.statVal,color:"#f59e0b"}}>${totCost.toFixed(2)}</div></div>
-          <div style={{fontSize:10,color:"#334155",marginLeft:"auto"}}>Scale: {GRID}px = 3 in · 1 ft = {PPF}px</div>
+          <div style={{fontSize:10,color:"#334155",marginLeft:"auto"}}>Scale: {GRID}px = 3" · 12" = {PPF}px</div>
         </div>
       </div>
 
@@ -629,30 +625,30 @@ export default function DrawingPage() {
               {/* W / H inputs */}
               <div style={{display:"flex",gap:6,marginBottom:10}}>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:10,color:"#475569",marginBottom:3}}>Width (ft)</div>
-                  <input type="number" style={S.inp} step="0.01" min="0.01"
-                    value={selMeta.widthFt}
+                  <div style={{fontSize:10,color:"#475569",marginBottom:3}}>Width (in)</div>
+                  <input type="number" style={S.inp} step="0.125" min="0.125"
+                    value={Number((selMeta.widthFt*12).toFixed(3))}
                     onChange={e=>{
                       const v=parseFloat(e.target.value);
-                      if(!isNaN(v)&&v>0) handleDimChange(selMeta.id,"width",v);
+                      if(!isNaN(v)&&v>0) handleDimChange(selMeta.id,"width",v/12);
                     }}/>
                 </div>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:10,color:"#475569",marginBottom:3}}>Height (ft)</div>
-                  <input type="number" style={S.inp} step="0.01" min="0.01"
-                    value={selMeta.heightFt}
+                  <div style={{fontSize:10,color:"#475569",marginBottom:3}}>Height (in)</div>
+                  <input type="number" style={S.inp} step="0.125" min="0.125"
+                    value={Number((selMeta.heightFt*12).toFixed(3))}
                     onChange={e=>{
                       const v=parseFloat(e.target.value);
-                      if(!isNaN(v)&&v>0) handleDimChange(selMeta.id,"height",v);
+                      if(!isNaN(v)&&v>0) handleDimChange(selMeta.id,"height",v/12);
                     }}/>
                 </div>
               </div>
 
               {/* Computed values */}
               <div style={S.propRow}><span style={S.propLbl}>Area</span><span style={{...S.propVal,color:"#22c55e"}}>{selMeta.sqft.toFixed(4)} sqft</span></div>
-              <div style={S.propRow}><span style={S.propLbl}>Perimeter</span><span style={S.propVal}>{selMeta.perimLf.toFixed(4)} lf</span></div>
-              <div style={S.propRow}><span style={S.propLbl}>W (label)</span><span style={S.propVal}>{fmtFeet(selMeta.widthFt*PPF)}</span></div>
-              <div style={S.propRow}><span style={S.propLbl}>H (label)</span><span style={S.propVal}>{fmtFeet(selMeta.heightFt*PPF)}</span></div>
+              <div style={S.propRow}><span style={S.propLbl}>Perimeter</span><span style={S.propVal}>{(selMeta.perimLf*12).toFixed(2)}"</span></div>
+              <div style={S.propRow}><span style={S.propLbl}>W</span><span style={S.propVal}>{fmtInches(selMeta.widthFt*PPF)}</span></div>
+              <div style={S.propRow}><span style={S.propLbl}>H</span><span style={S.propVal}>{fmtInches(selMeta.heightFt*PPF)}</span></div>
             </div>
 
             {/* Labor */}
@@ -682,8 +678,8 @@ export default function DrawingPage() {
               </label>
               {selMeta.hasBack&&(
                 <div style={{marginLeft:20,marginBottom:4}}>
-                  <div style={{fontSize:10,color:"#475569",marginBottom:2}}>Backsplash LF</div>
-                  <input type="number" step="0.01" style={{...S.inp,width:90}} value={selMeta.backLf} onChange={e=>updMeta(selMeta.id,{backLf:Number(e.target.value)})}/>
+                  <div style={{fontSize:10,color:"#475569",marginBottom:2}}>Backsplash (in)</div>
+                  <input type="number" step="0.5" min="0" style={{...S.inp,width:90}} value={Number((selMeta.backLf*12).toFixed(2))} onChange={e=>updMeta(selMeta.id,{backLf:Number(e.target.value)/12})}/>
                 </div>
               )}
             </div>
@@ -694,10 +690,10 @@ export default function DrawingPage() {
                 <div style={S.secTitle}>Cost Breakdown</div>
                 {selMeta.kind!=="cutout"&&<div style={S.costRow()}><span>Material ({selMeta.sqft.toFixed(2)} sqft)</span><span>${selCost.mat.toFixed(2)}</span></div>}
                 {selMeta.shapeLabor&&<div style={S.costRow()}><span>Shape labor</span><span>${selCost.sl.toFixed(2)}</span></div>}
-                {selMeta.edgeLabor&&<div style={S.costRow()}><span>Edge labor ({selMeta.perimLf.toFixed(2)} lf)</span><span>${selCost.el.toFixed(2)}</span></div>}
+                {selMeta.edgeLabor&&<div style={S.costRow()}><span>Edge labor ({(selMeta.perimLf*12).toFixed(1)}")</span><span>${selCost.el.toFixed(2)}</span></div>}
                 {selMeta.corners>0&&<div style={S.costRow()}><span>Corners ({selMeta.corners}×${rates.cornerEach})</span><span>${selCost.cl.toFixed(2)}</span></div>}
                 {selMeta.cutouts>0&&<div style={S.costRow()}><span>Sink cutouts ({selMeta.cutouts}×${rates.sinkEach})</span><span>${selCost.cut.toFixed(2)}</span></div>}
-                {selMeta.hasBack&&<div style={S.costRow()}><span>Backsplash ({selMeta.backLf} lf)</span><span>${selCost.bl.toFixed(2)}</span></div>}
+                {selMeta.hasBack&&<div style={S.costRow()}><span>Backsplash ({(selMeta.backLf*12).toFixed(1)}")</span><span>${selCost.bl.toFixed(2)}</span></div>}
                 <div style={S.costRow(true)}><span>Shape Total</span><span style={{color:"#22c55e"}}>${selCost.total.toFixed(2)}</span></div>
               </div>
             )}

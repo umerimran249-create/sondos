@@ -73,13 +73,9 @@ function polyPerim(pts: {x:number,y:number}[]) {
   return p;
 }
 
-function fmtFeet(px: number): string {
-  const ft = Math.abs(px) / PPF;
-  const wholeFt = Math.floor(ft);
-  const inches = Math.round((ft - wholeFt) * 12);
-  if (wholeFt === 0) return `${inches}"`;
-  if (inches === 0) return `${wholeFt}'`;
-  return `${wholeFt}' ${inches}"`;
+function fmtInches(px: number): string {
+  const inches = Math.abs(px) / PPF * 12;
+  return `${Number(inches.toFixed(1))}"`;
 }
 
 function productColorStyle(colorName?: string | null): { fill: string; stroke: string } {
@@ -219,8 +215,8 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
     const old = dimLabelsRef.current[id];
     if (old) { try { c.remove(old.wObj); c.remove(old.hObj); } catch {} }
     const br = getShapeBounds(obj);
-    const wObj = makeDimText(fabric, `W: ${fmtFeet(br.width)}`, br.left + br.width / 2, Math.max(br.top - 16, 12));
-    const hObj = makeDimText(fabric, `H: ${fmtFeet(br.height)}`, br.left + br.width / 2, br.top + br.height + 16);
+    const wObj = makeDimText(fabric, `W: ${fmtInches(br.width)}`, br.left + br.width / 2, Math.max(br.top - 16, 12));
+    const hObj = makeDimText(fabric, `H: ${fmtInches(br.height)}`, br.left + br.width / 2, br.top + br.height + 16);
     c.add(wObj); c.add(hObj);
     try { (c.bringToFront || c.bringObjectToFront).call(c, wObj); (c.bringToFront || c.bringObjectToFront).call(c, hObj); } catch {}
     dimLabelsRef.current[id] = { wObj, hObj };
@@ -233,8 +229,8 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
     const labels = dimLabelsRef.current[id];
     if (!labels) { createDimLabels(id, obj); return; }
     const br = getShapeBounds(obj);
-    const W = `W: ${fmtFeet(br.width)}`;
-    const H = `H: ${fmtFeet(br.height)}`;
+    const W = `W: ${fmtInches(br.width)}`;
+    const H = `H: ${fmtInches(br.height)}`;
     try {
       labels.wObj.set({ text: W, left: br.left + br.width / 2, top: Math.max(br.top - 16, 12) });
       labels.hObj.set({ text: H, left: br.left + br.width / 2, top: br.top + br.height + 16 });
@@ -734,7 +730,7 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
                 </div>
                 <div style={{fontSize:9,color:"#4b6080",marginTop:1}}>
                   {m.productName?<span style={{color:"#6b7280"}}>{m.productName} · </span>:null}
-                  {m.sqft.toFixed(1)} sqft · ${calcCost(m,rates).toFixed(0)}
+                  {(m.widthFt*12).toFixed(1)}" × {(m.heightFt*12).toFixed(1)}" · ${calcCost(m,rates).toFixed(0)}
                 </div>
               </div>
             );
@@ -814,22 +810,22 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
               <div style={S.title}>Dimensions</div>
               <div style={{display:"flex",gap:6,marginBottom:8}}>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Width (ft)</div>
-                  <input type="number" style={S.inp} step="0.01" min="0.01"
-                    value={selMeta.widthFt}
-                    onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"width",v);}}/>
+                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Width (in)</div>
+                  <input type="number" style={S.inp} step="0.125" min="0.125"
+                    value={Number((selMeta.widthFt*12).toFixed(3))}
+                    onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"width",v/12);}}/>
                 </div>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Height (ft)</div>
-                  <input type="number" style={S.inp} step="0.01" min="0.01"
-                    value={selMeta.heightFt}
-                    onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"height",v);}}/>
+                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Height (in)</div>
+                  <input type="number" style={S.inp} step="0.125" min="0.125"
+                    value={Number((selMeta.heightFt*12).toFixed(3))}
+                    onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"height",v/12);}}/>
                 </div>
               </div>
               <div style={S.row}><span style={S.lbl}>Area</span><span style={{...S.val,color:"#D4AF37"}}>{selMeta.sqft.toFixed(4)} sqft</span></div>
-              <div style={S.row}><span style={S.lbl}>Perimeter</span><span style={S.val}>{selMeta.perimLf.toFixed(4)} lf</span></div>
-              <div style={S.row}><span style={S.lbl}>W (label)</span><span style={S.val}>{selMeta.widthFt.toFixed(4) + " ft"}</span></div>
-              <div style={S.row}><span style={S.lbl}>H (label)</span><span style={S.val}>{selMeta.heightFt.toFixed(4) + " ft"}</span></div>
+              <div style={S.row}><span style={S.lbl}>Perimeter</span><span style={S.val}>{(selMeta.perimLf*12).toFixed(2)}"</span></div>
+              <div style={S.row}><span style={S.lbl}>W</span><span style={S.val}>{fmtInches(selMeta.widthFt*PPF)}</span></div>
+              <div style={S.row}><span style={S.lbl}>H</span><span style={S.val}>{fmtInches(selMeta.heightFt*PPF)}</span></div>
             </div>
 
             {/* Add-ons */}
@@ -841,8 +837,8 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
               </label>
               {selMeta.hasBack&&(
                 <div style={{marginLeft:16,marginBottom:4}}>
-                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Back LF</div>
-                  <input type="number" style={{...S.inp,width:70}} value={selMeta.backLf} onChange={e=>updMeta(selMeta.id,{backLf:Number(e.target.value)})}/>
+                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Backsplash (in)</div>
+                  <input type="number" step="0.5" min="0" style={{...S.inp,width:70}} value={Number((selMeta.backLf*12).toFixed(2))} onChange={e=>updMeta(selMeta.id,{backLf:Number(e.target.value)/12})}/>
                 </div>
               )}
               {[["Corners","corners"],["Sink cutouts","cutouts"]].map(([lbl,k])=>(
@@ -871,7 +867,7 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
                   {mat===0&&selMeta.kind!=="cutout"&&<div style={{fontSize:10,color:"#6b7280",marginBottom:4}}>Select a product to calculate material cost</div>}
                   {cl>0&&<div style={S.row}><span style={S.lbl}>Corners ×{selMeta.corners}</span><span style={S.val}>${cl.toFixed(2)}</span></div>}
                   {cut>0&&<div style={S.row}><span style={S.lbl}>Sink cutouts ×{selMeta.cutouts}</span><span style={S.val}>${cut.toFixed(2)}</span></div>}
-                  {bl>0&&<div style={S.row}><span style={S.lbl}>Backsplash {selMeta.backLf} lf</span><span style={S.val}>${bl.toFixed(2)}</span></div>}
+                  {bl>0&&<div style={S.row}><span style={S.lbl}>Backsplash {(selMeta.backLf*12).toFixed(1)}"</span><span style={S.val}>${bl.toFixed(2)}</span></div>}
                   <div style={{...S.row,borderTop:"1px solid #1a2438",paddingTop:6,marginTop:4}}>
                     <span style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>Shape Total</span>
                     <span style={{fontSize:13,fontWeight:700,color:"#D4AF37"}}>${total.toFixed(2)}</span>
