@@ -183,7 +183,7 @@ export default function ShapeLibraryPage() {
 
   async function load() {
     setLoading(true);
-    const res = await fetch("/api/shape-templates");
+    const res = await fetch("/api/shape-templates", { cache: "no-store" });
     const j   = await res.json();
     setTemplates(j.templates ?? []);
     setLoading(false);
@@ -844,6 +844,7 @@ export default function ShapeLibraryPage() {
               {/* Delete */}
               <div style={{ padding:"0 14px 12px", display:"flex", gap:8 }}>
                 <button
+                  type="button"
                   onClick={() => startEdit(t)}
                   style={{
                     flex:1, padding:"6px", borderRadius:6, fontSize:11, fontWeight:600,
@@ -854,6 +855,7 @@ export default function ShapeLibraryPage() {
                   ✏ Edit
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDelete(t.id, t.name)}
                   disabled={deleting === t.id}
                   style={{

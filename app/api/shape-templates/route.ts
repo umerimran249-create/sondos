@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from("shape_templates")
@@ -9,7 +11,10 @@ export async function GET() {
     .order("created_at", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ templates: data ?? [] });
+  return NextResponse.json(
+    { templates: data ?? [] },
+    { headers: { "Cache-Control": "no-store, max-age=0" } },
+  );
 }
 
 function buildPayload(body: Record<string, unknown>) {

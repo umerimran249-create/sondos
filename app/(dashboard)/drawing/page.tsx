@@ -27,7 +27,18 @@ function fmtInches(px: number): string {
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type ToolMode  = "select" | "draw";
-type ShapeKind = "countertop" | "island" | "backsplash" | "cutout";
+type ShapeKind =
+  | "countertop"
+  | "island"
+  | "backsplash"
+  | "cutout"
+  | "shape"
+  | "edges"
+  | "sink"
+  | "corner_bumpout"
+  | "labor"
+  | "extra_services"
+  | "slab";
 
 interface ShapeMeta {
   id: string; label: string; kind: ShapeKind;
@@ -45,6 +56,20 @@ interface Rates {
 const DEF_RATES: Rates = {
   material:0, shapePerSqft:0, edgePerLf:0,
   cornerEach:0, sinkEach:0, backPerLf:0,
+};
+
+const SHAPE_KIND_LABELS: Record<string, string> = {
+  countertop: "Countertop",
+  island: "Island",
+  backsplash: "Backsplash",
+  cutout: "Cutout",
+  shape: "Shape",
+  edges: "Edges",
+  sink: "Sink",
+  corner_bumpout: "Corner/Bumpout",
+  labor: "Labor",
+  extra_services: "Extra Services",
+  slab: "Slab",
 };
 
 function calcCost(m: ShapeMeta, r: Rates) {
@@ -477,7 +502,7 @@ export default function DrawingPage() {
           )}
         </div>
 
-        {/* Templates */}
+          {/* Templates */}
         <div style={S.sec}>
           <div style={S.secTitle}>Add Shape</div>
           {([["Straight Top",addRect,"#22c55e"],["Island",addIsland,"#3b82f6"],["L-Shape",addLShape,"#a855f7"],["U-Shape",addUShape,"#fbbf24"],["Sink Cutout",addSink,"#f97316"],["Seam Line",addSeam,"#eab308"]] as [string,()=>void,string][]).map(([lbl,fn,col])=>(
@@ -506,33 +531,46 @@ export default function DrawingPage() {
                   style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:13,lineHeight:1}}>✕</button>
               )}
             </div>
-            {/* Grid */}
+            {/* Grouped list (no images) */}
             {(()=>{
-              const filtered=dbShapes.filter(t=>t.label.toLowerCase().includes(shapeSearch.toLowerCase()));
+              const q = shapeSearch.trim().toLowerCase();
+              const filtered=dbShapes.filter(t =>
+                !q
+                || t.label.toLowerCase().includes(q)
+                || (SHAPE_KIND_LABELS[t.kind] ?? t.kind).toLowerCase().includes(q)
+              );
               return filtered.length===0?(
                 <div style={{fontSize:11,color:"#475569",textAlign:"center",padding:"10px 0"}}>No shapes match "{shapeSearch}"</div>
               ):(
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-                  {filtered.map(tpl=>(
-                    <button key={tpl.id} disabled={!ready} onClick={()=>addTemplateShape(tpl)}
-                      title={`Add ${tpl.label}`}
-                      style={{
-                        background:"#060d18",border:`1px solid ${tpl.stroke}40`,
-                        borderRadius:6,padding:"4px 3px",cursor:"pointer",
-                        display:"flex",flexDirection:"column",alignItems:"center",gap:3,
-                      }}
-                      onMouseEnter={e=>(e.currentTarget.style.borderColor=tpl.stroke)}
-                      onMouseLeave={e=>(e.currentTarget.style.borderColor=`${tpl.stroke}40`)}>
-                      {tpl.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={tpl.image} alt={tpl.label} style={{width:"100%",height:42,objectFit:"contain"}}/>
-                      ) : (
-                        <div style={{width:"100%",height:42,background:`${tpl.stroke}18`,borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,color:tpl.stroke}}>⬜</div>
-                      )}
-                      <span style={{fontSize:9,color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",width:"100%",textAlign:"center"}}>
-                        {tpl.label}
-                      </span>
-                    </button>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {Object.entries(filtered.reduce((acc, tpl) => {
+                    const kindKey = tpl.kind || "countertop";
+                    if (!acc[kindKey]) acc[kindKey] = [];
+                    acc[kindKey].push(tpl);
+                    return acc;
+                  }, {} as Record<string, typeof filtered>)).map(([kind, shapes]) => (
+                    <div key={kind}>
+                      <div style={{fontSize:10,color:"#64748b",fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+                        {SHAPE_KIND_LABELS[kind] ?? kind} ({shapes.length})
+                      </div>
+                      <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                        {shapes.map(tpl=>(
+                          <button key={tpl.id} disabled={!ready} onClick={()=>addTemplateShape(tpl)}
+                            title={`Add ${tpl.label}`}
+                            style={{
+                              ...S.tplBtn,
+                              marginBottom:0,
+                              borderColor:`${tpl.stroke}55`,
+                              color:"#cbd5e1",
+                              background:"#060d18",
+                            }}
+                            onMouseEnter={e=>(e.currentTarget.style.borderColor=tpl.stroke)}
+                            onMouseLeave={e=>(e.currentTarget.style.borderColor=`${tpl.stroke}55`)}>
+                            + {tpl.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               );
@@ -614,6 +652,13 @@ export default function DrawingPage() {
                   <option value="island">Island</option>
                   <option value="backsplash">Backsplash</option>
                   <option value="cutout">Cutout</option>
+                  <option value="shape">Shape</option>
+                  <option value="edges">Edges</option>
+                  <option value="sink">Sink</option>
+                  <option value="corner_bumpout">Corner/Bumpout</option>
+                  <option value="labor">Labor</option>
+                  <option value="extra_services">Extra Services</option>
+                  <option value="slab">Slab</option>
                 </select>
               </div>
             </div>
