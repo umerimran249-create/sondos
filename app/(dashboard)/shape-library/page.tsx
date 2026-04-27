@@ -63,6 +63,59 @@ function compressImage(file: File, maxW = 320, maxH = 240): Promise<string> {
   });
 }
 
+// ──────────────────────────────────────────────
+// Bulk import types
+// ──────────────────────────────────────────────
+interface BulkRow {
+  name: string;
+  kind: string;
+  width_in: number;
+  height_in: number;
+  stroke_color: string;
+  image_data: string | null;
+}
+
+const DEFAULT_BULK_KIND   = "countertop";
+const DEFAULT_BULK_W      = 30;
+const DEFAULT_BULK_H      = 24;
+const DEFAULT_BULK_COLOR  = "#D4AF37";
+
+/** Parse a raw CSV string into BulkRows. First row treated as header if it contains non-numeric name. */
+function parseCsv(raw: string): BulkRow[] {
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+
+  // Detect header row — if the first cell isn't a number, treat as header
+  let dataStart = 0;
+  let headers: string[] = [];
+  const firstCells = lines[0].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g, "").trim().toLowerCase());
+  if (isNaN(Number(firstCells[0]))) {
+    headers = firstCells;
+    dataStart = 1;
+  } else {
+    // No header: assume name, kind, width_in, height_in, stroke_color
+    headers = ["name","kind","width_in","height_in","stroke_color"];
+  }
+
+  const idx = (key: string) => headers.indexOf(key);
+
+  return lines.slice(dataStart).map(line => {
+    const cells = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g, "").trim());
+    const get   = (key: string, fallback = "") => cells[idx(key)] ?? fallback;
+    const nameVal = get("name") || get("shape name") || get("shape") || cells[0] || "";
+    const kindRaw = (get("kind") || get("type") || "").toLowerCase();
+    const validKinds = ["countertop","island","backsplash","cutout"];
+    return {
+      name:        nameVal,
+      kind:        validKinds.includes(kindRaw) ? kindRaw : DEFAULT_BULK_KIND,
+      width_in:    parseFloat(get("width_in") || get("width") || get("w")) || DEFAULT_BULK_W,
+      height_in:   parseFloat(get("height_in") || get("height") || get("h")) || DEFAULT_BULK_H,
+      stroke_color: get("stroke_color") || get("color") || get("colour") || DEFAULT_BULK_COLOR,
+      image_data:  null,
+    } as BulkRow;
+  }).filter(r => r.name);
+}
+
 export default function ShapeLibraryPage() {
   const [templates, setTemplates] = useState<ShapeTemplate[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -73,6 +126,15 @@ export default function ShapeLibraryPage() {
   const [error, setError]         = useState<string | null>(null);
   const [success, setSuccess]     = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Bulk import state ──
+  const [bulkOpen, setBulkOpen]     = useState(false);
+  const [bulkTab, setBulkTab]       = useState<"images"|"csv">("images");
+  const [bulkRows, setBulkRows]     = useState<BulkRow[]>([]);
+  const [bulkCsv, setBulkCsv]       = useState("");
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const bulkImgRef = useRef<HTMLInputElement>(null);
+  const bulkCsvRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -158,6 +220,77 @@ export default function ShapeLibraryPage() {
     }
   }
 
+  // ── Bulk: process multiple images dropped/selected ──
+  async function handleBulkImages(files: FileList | null) {
+    if (!files || !files.length) return;
+    const newRows: BulkRow[] = [];
+    for (const file of Array.from(files)) {
+      const nameFromFile = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      let imgData: string | null = null;
+      try { imgData = await compressImage(file, 320, 240); } catch { /* skip */ }
+      newRows.push({
+        name:        nameFromFile,
+        kind:        DEFAULT_BULK_KIND,
+        width_in:    DEFAULT_BULK_W,
+        height_in:   DEFAULT_BULK_H,
+        stroke_color: DEFAULT_BULK_COLOR,
+        image_data:  imgData,
+      });
+    }
+    setBulkRows(prev => [...prev, ...newRows]);
+  }
+
+  // ── Bulk: parse CSV text → rows ──
+  function handleParseCsv() {
+    const rows = parseCsv(bulkCsv);
+    if (!rows.length) { notify(false, "No valid rows found — check your CSV format."); return; }
+    setBulkRows(rows);
+    notify(true, `${rows.length} shape(s) ready to import.`);
+  }
+
+  // ── Bulk: upload CSV file ──
+  async function handleCsvFile(file: File) {
+    const text = await file.text();
+    setBulkCsv(text);
+    const rows = parseCsv(text);
+    setBulkRows(rows);
+    if (rows.length) notify(true, `${rows.length} shape(s) ready to import.`);
+    else notify(false, "No valid rows found in this CSV file.");
+  }
+
+  // ── Bulk: send all rows to API ──
+  async function handleBulkImport() {
+    if (!bulkRows.length) return;
+    setBulkImporting(true);
+    try {
+      const items = bulkRows.map(r => ({
+        name:              r.name,
+        kind:              r.kind,
+        stroke_color:      r.stroke_color,
+        image_data:        r.image_data,
+        default_width_ft:  r.width_in  / 12,
+        default_height_ft: r.height_in / 12,
+        default_corners:   4,
+      }));
+      const res = await fetch("/api/shape-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Import failed");
+      notify(true, `${j.inserted} shape(s) imported successfully!`);
+      setBulkRows([]);
+      setBulkCsv("");
+      setBulkOpen(false);
+      load();
+    } catch (e: any) {
+      notify(false, e.message);
+    } finally {
+      setBulkImporting(false);
+    }
+  }
+
   const kindColor: Record<string, string> = {
     countertop: "#D4AF37", island: "#60a5fa",
     backsplash: "#a855f7", cutout: "#f97316",
@@ -189,14 +322,217 @@ export default function ShapeLibraryPage() {
             Custom shapes appear in the Drawing Tool and Quote Canvas.
           </p>
         </div>
-        <button
-          onClick={() => setFormOpen(o => !o)}
-          className="btn-primary"
-          style={{ display:"flex", alignItems:"center", gap:8 }}
-        >
-          {formOpen ? "✕ Cancel" : "+ Add New Shape"}
-        </button>
+        <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
+          <button
+            onClick={() => { setBulkOpen(o => !o); setFormOpen(false); }}
+            style={{
+              display:"flex", alignItems:"center", gap:8,
+              padding:"9px 18px", borderRadius:9, fontSize:13, fontWeight:600, cursor:"pointer",
+              background: bulkOpen ? "#1a2438" : "transparent",
+              color: bulkOpen ? "#fff" : "var(--text-muted)",
+              border:"1px solid #2a3550", transition:"all .15s",
+            }}
+          >
+            {bulkOpen ? "✕ Close Bulk Import" : "📦 Bulk Import"}
+          </button>
+          <button
+            onClick={() => { setFormOpen(o => !o); setBulkOpen(false); }}
+            className="btn-primary"
+            style={{ display:"flex", alignItems:"center", gap:8 }}
+          >
+            {formOpen ? "✕ Cancel" : "+ Add New Shape"}
+          </button>
+        </div>
       </div>
+
+      {/* ── BULK IMPORT PANEL ── */}
+      {bulkOpen && (
+        <div className="card" style={{ border:"1px solid #2a3550" }}>
+          <h2 className="text-sm font-semibold text-white mb-1">Bulk Import Shapes</h2>
+          <p style={{ fontSize:12, color:"var(--text-muted)", marginBottom:16 }}>
+            Import many shapes at once — either by uploading multiple images, or by pasting a CSV list.
+          </p>
+
+          {/* Tabs */}
+          <div style={{ display:"flex", gap:0, marginBottom:20, borderBottom:"1px solid #1a2438" }}>
+            {(["images","csv"] as const).map(tab => (
+              <button key={tab} onClick={() => { setBulkTab(tab); setBulkRows([]); setBulkCsv(""); }}
+                style={{
+                  padding:"8px 20px", fontSize:12, fontWeight:600, cursor:"pointer",
+                  background:"transparent", border:"none",
+                  borderBottom: bulkTab === tab ? "2px solid #D4AF37" : "2px solid transparent",
+                  color: bulkTab === tab ? "#D4AF37" : "var(--text-muted)",
+                  transition:"all .15s",
+                }}>
+                {tab === "images" ? "🖼  Upload Images" : "📄  CSV / Spreadsheet"}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Images tab ── */}
+          {bulkTab === "images" && (
+            <div>
+              <p style={{ fontSize:12, color:"var(--text-muted)", marginBottom:12, lineHeight:1.7 }}>
+                Select or drag <strong style={{color:"#fff"}}>multiple image files</strong> at once.
+                Each file becomes a shape. The shape name is taken from the filename automatically.<br/>
+                You can edit names, size, and type in the preview below before importing.
+              </p>
+              <div
+                onClick={() => bulkImgRef.current?.click()}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); handleBulkImages(e.dataTransfer.files); }}
+                style={{
+                  border:"2px dashed #2a3550", borderRadius:12, padding:"32px 20px",
+                  textAlign:"center", cursor:"pointer", background:"#060d18",
+                  transition:"border-color .2s",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor="#D4AF37")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor="#2a3550")}
+              >
+                <div style={{ fontSize:36, marginBottom:8 }}>🗂️</div>
+                <div style={{ fontSize:13, color:"#fff", fontWeight:600 }}>Click to select images, or drag &amp; drop here</div>
+                <div style={{ fontSize:11, color:"var(--text-muted)", marginTop:6 }}>PNG, JPG, SVG, WEBP — select multiple files at once</div>
+              </div>
+              <input ref={bulkImgRef} type="file" accept="image/*" multiple style={{ display:"none" }}
+                onChange={e => handleBulkImages(e.target.files)} />
+            </div>
+          )}
+
+          {/* ── CSV tab ── */}
+          {bulkTab === "csv" && (
+            <div>
+              <div style={{ fontSize:12, color:"var(--text-muted)", marginBottom:10, lineHeight:1.7 }}>
+                Paste your shape list below, or upload a <code style={{color:"#D4AF37"}}>.csv</code> file.<br/>
+                <strong style={{color:"#fff"}}>Column order:</strong>{" "}
+                <code style={{color:"#9ca3af",fontSize:11}}>name, kind, width_in, height_in, stroke_color</code>{" "}
+                — all columns after <em>name</em> are optional.{" "}
+                <strong style={{color:"#fff"}}>Kind</strong> options: countertop · island · backsplash · cutout
+              </div>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                <button onClick={() => bulkCsvRef.current?.click()}
+                  style={{ padding:"6px 14px", borderRadius:7, fontSize:12, fontWeight:600, cursor:"pointer",
+                    background:"#1a2438", color:"#fff", border:"1px solid #2a3550" }}>
+                  📂 Upload CSV file
+                </button>
+                <button onClick={() => setBulkCsv("name,kind,width_in,height_in\nKitchen Counter,countertop,96,26\nIsland A,island,60,36\nBathroom Vanity,countertop,48,22")}
+                  style={{ padding:"6px 14px", borderRadius:7, fontSize:12, cursor:"pointer",
+                    background:"transparent", color:"var(--text-muted)", border:"1px solid #2a2a2a" }}>
+                  Load example
+                </button>
+              </div>
+              <input ref={bulkCsvRef} type="file" accept=".csv,text/csv,text/plain" style={{ display:"none" }}
+                onChange={e => { const f=e.target.files?.[0]; if(f) handleCsvFile(f); }} />
+              <textarea
+                className="input"
+                rows={7}
+                placeholder={"name,kind,width_in,height_in\nKitchen Counter,countertop,96,26\nIsland A,island,60,36"}
+                value={bulkCsv}
+                onChange={e => setBulkCsv(e.target.value)}
+                style={{ fontFamily:"monospace", fontSize:12, width:"100%", marginBottom:10 }}
+              />
+              <button onClick={handleParseCsv}
+                style={{ padding:"8px 18px", borderRadius:8, fontSize:13, fontWeight:600, cursor:"pointer",
+                  background:"#1a2438", color:"#fff", border:"1px solid #2a3550" }}>
+                Preview rows →
+              </button>
+            </div>
+          )}
+
+          {/* ── Preview table ── */}
+          {bulkRows.length > 0 && (
+            <div style={{ marginTop:20 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                <h3 style={{ fontSize:13, fontWeight:700, color:"#fff", margin:0 }}>
+                  Preview — {bulkRows.length} shape{bulkRows.length !== 1 ? "s" : ""}
+                </h3>
+                <button onClick={() => setBulkRows([])}
+                  style={{ fontSize:11, color:"#f87171", background:"transparent", border:"none", cursor:"pointer" }}>
+                  Clear all
+                </button>
+              </div>
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12 }}>
+                  <thead>
+                    <tr style={{ borderBottom:"1px solid #1a2438" }}>
+                      {bulkTab === "images" && <th style={{ padding:"6px 8px", textAlign:"left", color:"var(--text-muted)", fontWeight:600 }}>Image</th>}
+                      <th style={{ padding:"6px 8px", textAlign:"left", color:"var(--text-muted)", fontWeight:600 }}>Name</th>
+                      <th style={{ padding:"6px 8px", textAlign:"left", color:"var(--text-muted)", fontWeight:600 }}>Type</th>
+                      <th style={{ padding:"6px 8px", textAlign:"left", color:"var(--text-muted)", fontWeight:600 }}>Width"</th>
+                      <th style={{ padding:"6px 8px", textAlign:"left", color:"var(--text-muted)", fontWeight:600 }}>Height"</th>
+                      <th style={{ padding:"6px 8px", textAlign:"left", color:"var(--text-muted)", fontWeight:600 }}>Color</th>
+                      <th style={{ padding:"6px 8px" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkRows.map((row, i) => (
+                      <tr key={i} style={{ borderBottom:"1px solid #0f1929" }}>
+                        {bulkTab === "images" && (
+                          <td style={{ padding:"5px 8px" }}>
+                            {row.image_data
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={row.image_data} alt="" style={{ width:40, height:30, objectFit:"contain", borderRadius:4, border:"1px solid #1a2438" }} />
+                              : <div style={{ width:40, height:30, background:"#1a2438", borderRadius:4 }} />
+                            }
+                          </td>
+                        )}
+                        <td style={{ padding:"5px 8px" }}>
+                          <input className="input" style={{ padding:"3px 8px", fontSize:12 }}
+                            value={row.name}
+                            onChange={e => setBulkRows(prev => prev.map((r,j) => j===i ? {...r,name:e.target.value} : r))} />
+                        </td>
+                        <td style={{ padding:"5px 8px" }}>
+                          <select className="input" style={{ padding:"3px 8px", fontSize:12 }}
+                            value={row.kind}
+                            onChange={e => setBulkRows(prev => prev.map((r,j) => j===i ? {...r,kind:e.target.value} : r))}>
+                            {KIND_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                        </td>
+                        <td style={{ padding:"5px 8px" }}>
+                          <input className="input" type="number" style={{ padding:"3px 8px", fontSize:12, width:70 }}
+                            value={row.width_in}
+                            onChange={e => setBulkRows(prev => prev.map((r,j) => j===i ? {...r,width_in:parseFloat(e.target.value)||DEFAULT_BULK_W} : r))} />
+                        </td>
+                        <td style={{ padding:"5px 8px" }}>
+                          <input className="input" type="number" style={{ padding:"3px 8px", fontSize:12, width:70 }}
+                            value={row.height_in}
+                            onChange={e => setBulkRows(prev => prev.map((r,j) => j===i ? {...r,height_in:parseFloat(e.target.value)||DEFAULT_BULK_H} : r))} />
+                        </td>
+                        <td style={{ padding:"5px 8px" }}>
+                          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                            <div style={{ width:14, height:14, borderRadius:"50%", background:row.stroke_color, flexShrink:0, border:"1px solid #2a2a2a" }} />
+                            <input type="color" value={row.stroke_color}
+                              onChange={e => setBulkRows(prev => prev.map((r,j) => j===i ? {...r,stroke_color:e.target.value} : r))}
+                              style={{ width:28, height:24, border:"none", background:"transparent", cursor:"pointer", padding:0 }} />
+                          </div>
+                        </td>
+                        <td style={{ padding:"5px 8px" }}>
+                          <button onClick={() => setBulkRows(prev => prev.filter((_,j) => j!==i))}
+                            style={{ color:"#f87171", background:"transparent", border:"none", cursor:"pointer", fontSize:14 }}>
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop:16, display:"flex", gap:10, alignItems:"center" }}>
+                <button
+                  className="btn-primary"
+                  onClick={handleBulkImport}
+                  disabled={bulkImporting || !bulkRows.length}
+                  style={{ minWidth:180 }}
+                >
+                  {bulkImporting ? "Importing…" : `⬆ Import ${bulkRows.length} Shape${bulkRows.length !== 1 ? "s" : ""}`}
+                </button>
+                <span style={{ fontSize:11, color:"var(--text-muted)" }}>
+                  You can edit names, sizes, and types in the table above before importing.
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── ADD FORM ── */}
       {formOpen && (

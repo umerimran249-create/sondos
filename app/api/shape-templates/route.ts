@@ -12,11 +12,9 @@ export async function GET() {
   return NextResponse.json({ templates: data ?? [] });
 }
 
-export async function POST(req: Request) {
-  const body = await req.json();
-
-  const payload = {
-    name:              body.name,
+function buildPayload(body: Record<string, unknown>) {
+  return {
+    name:              String(body.name ?? "").trim(),
     kind:              body.kind              ?? "countertop",
     stroke_color:      body.stroke_color      ?? "#D4AF37",
     image_data:        body.image_data        ?? null,
@@ -26,7 +24,32 @@ export async function POST(req: Request) {
     normalized_points: body.normalized_points ?? null,
     sort_order:        body.sort_order        ?? 0,
   };
+}
 
+export async function POST(req: Request) {
+  const body = await req.json();
+
+  // Bulk insert: body = { items: [...] }
+  if (Array.isArray(body.items)) {
+    const payloads = (body.items as Record<string, unknown>[])
+      .filter(i => String(i.name ?? "").trim())
+      .map(buildPayload);
+
+    if (!payloads.length) {
+      return NextResponse.json({ error: "No valid items provided" }, { status: 400 });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("shape_templates")
+      .insert(payloads)
+      .select();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ templates: data, inserted: data?.length ?? 0 }, { status: 201 });
+  }
+
+  // Single insert
+  const payload = buildPayload(body as Record<string, unknown>);
   const { data, error } = await supabaseAdmin
     .from("shape_templates")
     .insert(payload)
