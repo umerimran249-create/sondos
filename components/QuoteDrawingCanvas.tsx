@@ -120,17 +120,30 @@ interface ShapeMeta {
   sqft: number; perimLf: number;
   widthFt: number; heightFt: number;
   corners: number; cutouts: number; backLf: number; hasBack: boolean;
+  backHeightIn?: number; // standard backsplash heights: 3, 4, 5, 6, 8, 18 inches
   productId?: string; productName?: string; productColor?: string; productCostPerSqft?: number;
   shapeCost?: number;
 }
+
+const BACKSPLASH_HEIGHTS = [3, 4, 5, 6, 8, 18];
 
 interface Rates { cornerEach: number; sinkEach: number; backPerLf: number; }
 
 const DEF_RATES: Rates = { cornerEach: 0, sinkEach: 0, backPerLf: 0 };
 
+/** Backsplash sqft = run length (lf) × height (inches → ft) */
+function backSqft(m: ShapeMeta): number {
+  if (!m.hasBack) return 0;
+  return m.backLf * ((m.backHeightIn ?? 4) / 12);
+}
+
 function calcCost(m: ShapeMeta, r: Rates): number {
-  const mat = m.kind !== "cutout" ? m.sqft * (m.productCostPerSqft ?? 0) : 0;
-  return mat + m.corners * r.cornerEach + m.cutouts * r.sinkEach + (m.hasBack ? m.backLf * r.backPerLf : 0);
+  const mat    = m.kind !== "cutout" ? m.sqft * (m.productCostPerSqft ?? 0) : 0;
+  // Backsplash material uses the same product cost per sqft
+  const backMat = m.hasBack ? backSqft(m) * (m.productCostPerSqft ?? 0) : 0;
+  // Per-linear-foot rate = labour / edge work on the backsplash
+  const backLabour = m.hasBack ? m.backLf * r.backPerLf : 0;
+  return mat + backMat + backLabour + m.corners * r.cornerEach + m.cutouts * r.sinkEach;
 }
 
 interface Props {
@@ -147,8 +160,14 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
   const ptsRef    = useRef<{x:number,y:number}[]>([]);
   const tmpRef    = useRef<any[]>([]);
   const shapesRef = useRef<Record<string,any>>({});
-  const dimLabelsRef = useRef<Record<string,{wObj:any;hObj:any}>>({});
-  const metasRef  = useRef<Record<string,ShapeMeta>>({});
+  const dimLabelsRef      = useRef<Record<string,{wObj:any;hObj:any}>>({});
+  const metasRef          = useRef<Record<string,ShapeMeta>>({});
+  const backSplashObjsRef = useRef<Record<string,{rect:any;label:any}>>({});
+  const placementKindRef  = useRef<{kind:"builtin"|"template"; name:string; tplId?:string}|null>(null);
+  const placementPreviewRef = useRef<any>(null);
+  const finalizePlacementRef = useRef<(left:number,top:number)=>void>(()=>{});
+  const cancelPlacementRef   = useRef<()=>void>(()=>{});
+  const dbShapesRef = useRef<ShapeTemplate[]>([]);
 
   const [ready, setReady]     = useState(false);
   const [mode, setMode]       = useState<"select"|"draw">("select");
@@ -163,9 +182,65 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
   const [products, setProducts]   = useState<Product[]>([]);
   const [dbShapes, setDbShapes]   = useState<ShapeTemplate[]>([]);
   const [shapeSearch, setShapeSearch] = useState("");
+  const [isPlacing, setIsPlacing] = useState<string|null>(null); // label of shape being placed
+  // Dimension draft state — lets user type freely; commits on blur/Enter
+  const [dimDraftW, setDimDraftW] = useState("");
+  const [dimDraftH, setDimDraftH] = useState("");
+  // Collapsible kind groups in "My Shapes" panel
+  const [kindGroupOpen, setKindGroupOpen] = useState<Record<string,boolean>>({
+    countertop: true, island: true, backsplash: true, cutout: true,
+  });
 
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { metasRef.current = metas; }, [metas]);
+  useEffect(() => { dbShapesRef.current = dbShapes; }, [dbShapes]);
+
+  // Keep placement refs pointing at latest closures so canvas event handlers always get current state
+  cancelPlacementRef.current = () => {
+    const c = cRef.current;
+    if (c && placementPreviewRef.current) {
+      try { c.remove(placementPreviewRef.current); c.renderAll(); } catch {}
+      placementPreviewRef.current = null;
+    }
+    placementKindRef.current = null;
+    setIsPlacing(null);
+  };
+  finalizePlacementRef.current = (left: number, top: number) => {
+    const pk = placementKindRef.current;
+    cancelPlacementRef.current();
+    if (!pk) return;
+    if (pk.kind === "builtin") { placeBuiltinAt(pk.name, left, top); }
+    else { const tpl = dbShapesRef.current.find(t => t.id === pk.tplId); if (tpl) placeTemplateAt(tpl, left, top); }
+  };
+
+  // Sync dimension draft when selection changes
+  useEffect(() => {
+    const m = metasRef.current[selId ?? ""];
+    if (m) {
+      setDimDraftW((m.widthFt * 12).toFixed(2));
+      setDimDraftH((m.heightFt * 12).toFixed(2));
+    }
+  }, [selId]);
+
+  // Escape key cancels placement mode
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") cancelPlacementRef.current(); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Re-draw backsplash overlays whenever any shape meta changes
+  useEffect(() => {
+    if (!ready) return;
+    // Sync all current shapes
+    Object.entries(metas).forEach(([id, meta]) => syncBackSplash(id, meta));
+    // Remove overlays for shapes that were deleted
+    Object.keys(backSplashObjsRef.current).forEach(id => {
+      if (!metas[id]) removeBackSplash(id);
+    });
+    cRef.current?.renderAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [metas, ready]);
 
   // Fetch products + shape templates from DB
   useEffect(() => {
@@ -243,6 +318,60 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
     const labels = dimLabelsRef.current[id];
     if (c && labels) { try { c.remove(labels.wObj); c.remove(labels.hObj); } catch {} }
     delete dimLabelsRef.current[id];
+  }
+
+  // ── Backsplash canvas overlay ─────────────────────────────────────
+  function removeBackSplash(id: string) {
+    const c = cRef.current;
+    const bs = backSplashObjsRef.current[id];
+    if (c && bs) { try { c.remove(bs.rect); c.remove(bs.label); } catch {} }
+    delete backSplashObjsRef.current[id];
+  }
+
+  function syncBackSplash(id: string, meta: ShapeMeta) {
+    const c = cRef.current; const f = fRef.current;
+    const shapeObj = shapesRef.current[id];
+    removeBackSplash(id);
+    if (!c || !f || !shapeObj || !meta.hasBack) return;
+
+    const br      = getShapeBounds(shapeObj);
+    const heightIn = meta.backHeightIn ?? 4;
+    const heightPx = (heightIn / 12) * PPF;
+    // If no explicit run length, default to shape's full top edge
+    const runLf   = meta.backLf > 0 ? meta.backLf : br.width / PPF;
+    const runPx   = runLf * PPF;
+    // Center run along the shape's top edge; leave a 2px gap
+    const leftX   = br.left + (br.width - runPx) / 2;
+    const topY    = br.top - heightPx - 2;
+
+    const rect = new f.Rect({
+      left: leftX, top: topY, width: runPx, height: heightPx,
+      fill: "rgba(168,85,247,0.18)", stroke: "#a855f7",
+      strokeWidth: 1.5, strokeDashArray: [5, 3],
+      selectable: false, evented: false, rx: 2, ry: 2,
+    });
+    rect._isBackSplash = true; rect._parentShapeId = id;
+
+    const bsqft = runLf * (heightIn / 12);
+    const TextClass = f.Text || f.FabricText;
+    const label = new TextClass(
+      `Backsplash\n${heightIn}" H × ${(runLf * 12).toFixed(1)}" L\n${bsqft.toFixed(2)} sqft`,
+      {
+        left: leftX + runPx / 2, top: topY + heightPx / 2,
+        originX: "center", originY: "center",
+        fontSize: 9, fill: "#c4b5fd", fontFamily: "monospace",
+        backgroundColor: "rgba(20,5,40,0.85)", padding: 3,
+        textAlign: "center" as const,
+        selectable: false, evented: false,
+      }
+    );
+    label._isBackSplash = true; label._parentShapeId = id;
+
+    c.add(rect); c.add(label);
+    // Keep parent shape rendered above the backsplash strip
+    try { (c.bringToFront || c.bringObjectToFront).call(c, shapeObj); } catch {}
+    backSplashObjsRef.current[id] = { rect, label };
+    c.renderAll();
   }
 
   // ── Grid ──────────────────────────────────────────────────────────
@@ -327,14 +456,16 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
             c.getObjects().forEach((obj:any)=>{
               if(obj._shapeId && !obj._isDimLabel){shapesRef.current[obj._shapeId]=obj;}
             });
-            // Recreate dim labels after short delay to let canvas settle
+            // Recreate dim labels + backsplash after short delay to let canvas settle
             setTimeout(()=>{
+              const savedMetas = metasRef.current;
               Object.keys(shapesRef.current).forEach(id=>{
                 const obj=shapesRef.current[id];
                 if(obj) createDimLabels(id,obj);
+                if(obj && savedMetas[id]) syncBackSplash(id, savedMetas[id]);
               });
               c.renderAll();
-            },100);
+            },150);
           });
         }catch{}
       }
@@ -346,21 +477,68 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
       if(initialLayout?.layout_data?.rates) setRates(initialLayout.layout_data.rates);
 
       c.on("mouse:down",(opt:any)=>{
+        // ── Placement mode ──
+        if(placementKindRef.current){
+          const p=c.getPointer(opt.e);
+          const preview=placementPreviewRef.current;
+          let left=snap(p.x), top=snap(p.y);
+          if(preview){
+            let br:any; try{br=preview.getBoundingRect(false,true);}catch{br=preview.getBoundingRect();}
+            left=snap(p.x-br.width/2); top=snap(p.y-br.height/2);
+          }
+          // If cursor is over an existing shape, center new shape on it
+          const target=c.findTarget(opt.e,true);
+          if(target&&target._shapeId&&!target._isPlacement&&preview){
+            const tbr=getShapeBounds(target);
+            let pvBr:any; try{pvBr=preview.getBoundingRect(false,true);}catch{pvBr=preview.getBoundingRect();}
+            left=Math.round(tbr.left+(tbr.width-pvBr.width)/2);
+            top=Math.round(tbr.top+(tbr.height-pvBr.height)/2);
+          }
+          finalizePlacementRef.current(left,top);
+          return;
+        }
+        // ── Draw mode ──
         if(modeRef.current!=="draw")return;
         const p=c.getPointer(opt.e);const pt={x:snap(p.x),y:snap(p.y)};
         const pts=ptsRef.current;
         if(pts.length>=3&&Math.hypot(pt.x-pts[0].x,pt.y-pts[0].y)<=GRID*1.5){finishPoly(c,fabric);return;}
         setDrawing(true);addPt(c,fabric,pt);
       });
-      c.on("mouse:move",(opt:any)=>{if(modeRef.current!=="draw"||!ptsRef.current.length)return;const p=c.getPointer(opt.e);updatePreview(c,fabric,{x:snap(p.x),y:snap(p.y)});});
+      c.on("mouse:move",(opt:any)=>{
+        const p=c.getPointer(opt.e);
+        // Move placement ghost
+        if(placementPreviewRef.current){
+          const preview=placementPreviewRef.current;
+          let br:any; try{br=preview.getBoundingRect(false,true);}catch{br=preview.getBoundingRect();}
+          preview.set({left:snap(p.x-br.width/2),top:snap(p.y-br.height/2)});
+          preview.setCoords(); c.renderAll(); return;
+        }
+        // Draw mode preview line
+        if(modeRef.current!=="draw"||!ptsRef.current.length)return;
+        updatePreview(c,fabric,{x:snap(p.x),y:snap(p.y)});
+      });
       c.on("mouse:dblclick",()=>{if(modeRef.current==="draw"&&ptsRef.current.length>=3){ptsRef.current.pop();const tmp=tmpRef.current;[tmp.pop(),tmp.pop()].forEach(o=>o&&c.remove(o));setPtCount(ptsRef.current.length);finishPoly(c,fabric);}});
       c.on("selection:created",(opt:any)=>setSelId(opt.selected?.[0]?._shapeId??null));
       c.on("selection:updated",(opt:any)=>setSelId(opt.selected?.[0]?._shapeId??null));
       c.on("selection:cleared",()=>setSelId(null));
       c.on("object:scaling",(opt:any)=>recalc(opt.target));
       c.on("object:modified",(opt:any)=>recalc(opt.target));
-      c.on("object:moving",(opt:any)=>updateDimLabels(opt.target));
       c.on("object:rotating",(opt:any)=>updateDimLabels(opt.target));
+      c.on("object:moving",(opt:any)=>{
+        updateDimLabels(opt.target);
+        // Move backsplash overlay in real-time
+        const id=opt.target?._shapeId; if(!id) return;
+        const bs=backSplashObjsRef.current[id]; if(!bs) return;
+        const br=getShapeBounds(opt.target);
+        const meta=metasRef.current[id]; if(!meta?.hasBack) return;
+        const heightPx=((meta.backHeightIn??4)/12)*PPF;
+        const runLf=meta.backLf>0?meta.backLf:br.width/PPF;
+        const runPx=runLf*PPF;
+        const leftX=br.left+(br.width-runPx)/2;
+        const topY=br.top-heightPx-2;
+        bs.rect.set({left:leftX,top:topY,width:runPx,height:heightPx});bs.rect.setCoords();
+        bs.label.set({left:leftX+runPx/2,top:topY+heightPx/2});bs.label.setCoords();
+      });
 
       setReady(true);
     })();
@@ -369,7 +547,7 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
 
   // ── Shape factories ───────────────────────────────────────────────
   function mkMeta(label:string,kind:ShapeKind,sqft:number,lf:number,corners:number,widthFt:number,heightFt:number):ShapeMeta {
-    return {id:"",label,kind,sqft,perimLf:lf,widthFt,heightFt,corners,cutouts:0,backLf:0,hasBack:false};
+    return {id:"",label,kind,sqft,perimLf:lf,widthFt,heightFt,corners,cutouts:0,backLf:0,hasBack:false,backHeightIn:4};
   }
 
   function addFabricObj(obj:any,meta:ShapeMeta) {
@@ -380,105 +558,99 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
     setMetas(p=>({...p,[id]:meta}));setSelId(id);c.renderAll();
   }
 
-  function addRect() {
-    const f=fRef.current;if(!f)return;
-    const W=200,H=60;
-    addFabricObj(new f.Rect({left:80,top:80,width:W,height:H,fill:"rgba(212,175,55,0.12)",stroke:"#D4AF37",strokeWidth:2}),
-      mkMeta(`Top ${Object.keys(metas).length+1}`,"countertop",parseFloat(((W/PPF)*(H/PPF)).toFixed(2)),parseFloat((2*(W+H)/PPF).toFixed(2)),4,parseFloat((W/PPF).toFixed(2)),parseFloat((H/PPF).toFixed(2))));
+  // ── Placement: create ghost and enter placement mode ─────────────
+  function startBuiltinPlacement(kind: string) {
+    const f=fRef.current; const c=cRef.current; if(!f||!c)return;
+    cancelPlacementRef.current();
+    let ghost: any;
+    if(kind==="rect")    ghost=new f.Rect({width:200,height:60,fill:"rgba(212,175,55,0.12)",stroke:"#D4AF37",strokeWidth:2});
+    else if(kind==="island") ghost=new f.Rect({width:180,height:90,fill:"rgba(96,165,250,0.1)",stroke:"#60a5fa",strokeWidth:2,rx:6,ry:6});
+    else if(kind==="lshape"){const pts=[{x:0,y:0},{x:240,y:0},{x:240,y:60},{x:100,y:60},{x:100,y:180},{x:0,y:180}];ghost=new f.Polygon(pts,{fill:"rgba(168,85,247,0.1)",stroke:"#a855f7",strokeWidth:2});}
+    else if(kind==="ushape"){const pts=[{x:0,y:0},{x:60,y:0},{x:60,y:140},{x:120,y:140},{x:120,y:0},{x:240,y:0},{x:240,y:60},{x:180,y:60},{x:180,y:200},{x:0,y:200}];ghost=new f.Polygon(pts,{fill:"rgba(251,191,36,0.1)",stroke:"#fbbf24",strokeWidth:2});}
+    else if(kind==="sink")   ghost=new f.Ellipse({rx:52,ry:34,fill:"rgba(15,23,42,0.85)",stroke:"#f97316",strokeDashArray:[6,4],strokeWidth:2});
+    if(!ghost) return;
+    ghost.set({opacity:0.55,selectable:false,evented:false,left:c.width/2-100,top:c.height/2-40});
+    ghost._isPlacement=true;
+    c.add(ghost); placementPreviewRef.current=ghost;
+    placementKindRef.current={kind:"builtin",name:kind};
+    setIsPlacing(kind); c.renderAll();
   }
-  function addIsland() {
-    const f=fRef.current;if(!f)return;
-    const W=180,H=90;
-    addFabricObj(new f.Rect({left:200,top:200,width:W,height:H,fill:"rgba(96,165,250,0.1)",stroke:"#60a5fa",strokeWidth:2,rx:6,ry:6}),
-      mkMeta(`Island ${Object.keys(metas).length+1}`,"island",parseFloat(((W/PPF)*(H/PPF)).toFixed(2)),parseFloat((2*(W+H)/PPF).toFixed(2)),4,parseFloat((W/PPF).toFixed(2)),parseFloat((H/PPF).toFixed(2))));
+
+  // ── Place built-in shape at final position ────────────────────────
+  function placeBuiltinAt(kind: string, left: number, top: number) {
+    const f=fRef.current; if(!f) return;
+    const n=Object.keys(metasRef.current).length;
+    if(kind==="rect"){const W=200,H=60;addFabricObj(new f.Rect({left,top,width:W,height:H,fill:"rgba(212,175,55,0.12)",stroke:"#D4AF37",strokeWidth:2}),mkMeta(`Top ${n+1}`,"countertop",parseFloat(((W/PPF)*(H/PPF)).toFixed(2)),parseFloat((2*(W+H)/PPF).toFixed(2)),4,parseFloat((W/PPF).toFixed(2)),parseFloat((H/PPF).toFixed(2))));}
+    else if(kind==="island"){const W=180,H=90;addFabricObj(new f.Rect({left,top,width:W,height:H,fill:"rgba(96,165,250,0.1)",stroke:"#60a5fa",strokeWidth:2,rx:6,ry:6}),mkMeta(`Island ${n+1}`,"island",parseFloat(((W/PPF)*(H/PPF)).toFixed(2)),parseFloat((2*(W+H)/PPF).toFixed(2)),4,parseFloat((W/PPF).toFixed(2)),parseFloat((H/PPF).toFixed(2))));}
+    else if(kind==="lshape"){const pts=[{x:0,y:0},{x:240,y:0},{x:240,y:60},{x:100,y:60},{x:100,y:180},{x:0,y:180}];addFabricObj(new f.Polygon(pts,{left,top,fill:"rgba(168,85,247,0.1)",stroke:"#a855f7",strokeWidth:2}),mkMeta(`L-Shape ${n+1}`,"countertop",parseFloat((polyArea(pts)/(PPF*PPF)).toFixed(2)),parseFloat((polyPerim(pts)/PPF).toFixed(2)),6,parseFloat((240/PPF).toFixed(2)),parseFloat((180/PPF).toFixed(2))));}
+    else if(kind==="ushape"){const pts=[{x:0,y:0},{x:60,y:0},{x:60,y:140},{x:120,y:140},{x:120,y:0},{x:240,y:0},{x:240,y:60},{x:180,y:60},{x:180,y:200},{x:0,y:200}];addFabricObj(new f.Polygon(pts,{left,top,fill:"rgba(251,191,36,0.1)",stroke:"#fbbf24",strokeWidth:2}),mkMeta(`U-Shape ${n+1}`,"countertop",parseFloat((polyArea(pts)/(PPF*PPF)).toFixed(2)),parseFloat((polyPerim(pts)/PPF).toFixed(2)),10,parseFloat((240/PPF).toFixed(2)),parseFloat((200/PPF).toFixed(2))));}
+    else if(kind==="sink"){const obj=new f.Ellipse({left,top,rx:52,ry:34,fill:"rgba(15,23,42,0.85)",stroke:"#f97316",strokeDashArray:[6,4],strokeWidth:2});const id=`cut_${Date.now()}`;obj._shapeId=id;const meta:ShapeMeta={id,label:"Sink Cutout",kind:"cutout",sqft:0,perimLf:0,widthFt:parseFloat(((52*2)/PPF).toFixed(2)),heightFt:parseFloat(((34*2)/PPF).toFixed(2)),corners:0,cutouts:1,backLf:0,hasBack:false,backHeightIn:4};const c=cRef.current;if(c){c.add(obj);c.setActiveObject(obj);shapesRef.current[id]=obj;createDimLabels(id,obj);setMetas(p=>({...p,[id]:meta}));setSelId(id);c.renderAll();}}
   }
-  function addLShape() {
-    const f=fRef.current;if(!f)return;
-    const pts=[{x:0,y:0},{x:240,y:0},{x:240,y:60},{x:100,y:60},{x:100,y:180},{x:0,y:180}];
-    addFabricObj(new f.Polygon(pts,{left:80,top:80,fill:"rgba(168,85,247,0.1)",stroke:"#a855f7",strokeWidth:2}),
-      mkMeta(`L-Shape ${Object.keys(metas).length+1}`,"countertop",parseFloat((polyArea(pts)/(PPF*PPF)).toFixed(2)),parseFloat((polyPerim(pts)/PPF).toFixed(2)),6,parseFloat((240/PPF).toFixed(2)),parseFloat((180/PPF).toFixed(2))));
-  }
-  function addUShape() {
-    const f=fRef.current;if(!f)return;
-    const pts=[{x:0,y:0},{x:60,y:0},{x:60,y:140},{x:120,y:140},{x:120,y:0},{x:240,y:0},{x:240,y:60},{x:180,y:60},{x:180,y:200},{x:0,y:200}];
-    addFabricObj(new f.Polygon(pts,{left:80,top:60,fill:"rgba(251,191,36,0.1)",stroke:"#fbbf24",strokeWidth:2}),
-      mkMeta(`U-Shape ${Object.keys(metas).length+1}`,"countertop",parseFloat((polyArea(pts)/(PPF*PPF)).toFixed(2)),parseFloat((polyPerim(pts)/PPF).toFixed(2)),10,parseFloat((240/PPF).toFixed(2)),parseFloat((200/PPF).toFixed(2))));
-  }
-  function addSink() {
-    const f=fRef.current;if(!f)return;
-    const id=`cut_${Date.now()}`;
-    const obj=new f.Ellipse({left:240,top:120,rx:52,ry:34,fill:"rgba(15,23,42,0.85)",stroke:"#f97316",strokeDashArray:[6,4],strokeWidth:2});
-    obj._shapeId=id;
-    const meta:ShapeMeta={id,label:"Sink Cutout",kind:"cutout",sqft:0,perimLf:0,widthFt:parseFloat(((52*2)/PPF).toFixed(2)),heightFt:parseFloat(((34*2)/PPF).toFixed(2)),corners:0,cutouts:1,backLf:0,hasBack:false};
-    cRef.current.add(obj);cRef.current.setActiveObject(obj);shapesRef.current[id]=obj;
-    createDimLabels(id,obj);
-    setMetas(p=>({...p,[id]:meta}));setSelId(id);cRef.current.renderAll();
-  }
+
   function addSeam() {
     const f=fRef.current;if(!f)return;
     cRef.current.add(new f.Line([100,200,400,200],{stroke:"#eab308",strokeWidth:2,strokeDashArray:[8,5]}));
     cRef.current.renderAll();
   }
 
-  // ── Custom template shapes ────────────────────────────────────────
-  function addTemplateShape(tpl: ShapeTemplate) {
+  // ── Template: create ghost and enter placement mode ──────────────
+  async function startTemplatePlacement(tpl: ShapeTemplate) {
+    const f=fRef.current; const c=cRef.current; if(!f||!c) return;
+    cancelPlacementRef.current();
+    const widthPx  = tpl.defaultWidthFt  * PPF;
+    const heightPx = tpl.defaultHeightFt * PPF;
+    let ghost: any;
+    if(tpl.normalizedPoints && tpl.normalizedPoints.length>=3){
+      const pts=tpl.normalizedPoints.map(p=>({x:Math.round(p.x*widthPx),y:Math.round(p.y*heightPx)}));
+      ghost=new f.Polygon(pts,{fill:`${tpl.stroke}18`,stroke:tpl.stroke,strokeWidth:2,objectCaching:false});
+    } else if(tpl.image){
+      try{
+        const ImageClass=f.Image||f.FabricImage;
+        const crossOriginOpt=tpl.image.startsWith("data:")?{}:{crossOrigin:"anonymous"};
+        const result=ImageClass.fromURL(tpl.image,crossOriginOpt);
+        const img=await (typeof result?.then==="function"?result:Promise.resolve(result));
+        img.scaleToWidth(widthPx); ghost=img;
+      } catch {
+        ghost=new f.Rect({width:widthPx,height:heightPx,fill:`${tpl.stroke}18`,stroke:tpl.stroke,strokeWidth:2});
+      }
+    } else {
+      ghost=new f.Rect({width:widthPx,height:heightPx,fill:`${tpl.stroke}18`,stroke:tpl.stroke,strokeWidth:2});
+    }
+    ghost.set({opacity:0.55,selectable:false,evented:false,left:c.width/2-widthPx/2,top:c.height/2-heightPx/2});
+    ghost._isPlacement=true;
+    c.add(ghost); placementPreviewRef.current=ghost;
+    placementKindRef.current={kind:"template",name:tpl.label,tplId:tpl.id};
+    setIsPlacing(tpl.label); c.renderAll();
+  }
+
+  // ── Place template at final position ─────────────────────────────
+  function placeTemplateAt(tpl: ShapeTemplate, left: number, top: number) {
     const f=fRef.current; const c=cRef.current; if(!f||!c) return;
     const widthPx  = tpl.defaultWidthFt  * PPF;
     const heightPx = tpl.defaultHeightFt * PPF;
-    const left = 60 + (Object.keys(metas).length % 3) * 30;
-    const top  = 60 + (Object.keys(metas).length % 3) * 20;
-
-    if (tpl.normalizedPoints && tpl.normalizedPoints.length >= 3) {
-      // Polygon with normalized coordinates scaled to the requested dimensions
-      const pts = tpl.normalizedPoints.map(p => ({
-        x: Math.round(p.x * widthPx),
-        y: Math.round(p.y * heightPx),
-      }));
-      const fill = `${tpl.stroke}18`;
-      const obj = new f.Polygon(pts, { left, top, fill, stroke: tpl.stroke, strokeWidth: 2, objectCaching: false });
-      const sqft = parseFloat((polyArea(pts) / (PPF * PPF)).toFixed(2));
-      const lf   = parseFloat((polyPerim(pts) / PPF).toFixed(2));
-      addFabricObj(obj, mkMeta(tpl.label, tpl.kind, sqft, lf, tpl.defaultCorners ?? pts.length,
-        tpl.defaultWidthFt, tpl.defaultHeightFt));
-
-    } else if (tpl.image) {
-      // Image-based shape — load the image onto the canvas
-      // Fabric v6 uses Promise-based fromURL; v5 used a callback as the second arg.
-      const ImageClass = f.Image || f.FabricImage;
-      if (ImageClass?.fromURL) {
-        const crossOriginOpt = tpl.image.startsWith("data:") ? {} : { crossOrigin: "anonymous" };
-        const applyImg = (img: any) => {
-          img.scaleToWidth(widthPx);
-          img.set({ left, top });
-          const sqft = parseFloat((tpl.defaultWidthFt * tpl.defaultHeightFt).toFixed(2));
-          const lf   = parseFloat((2 * (tpl.defaultWidthFt + tpl.defaultHeightFt)).toFixed(2));
-          addFabricObj(img, mkMeta(tpl.label, tpl.kind, sqft, lf, tpl.defaultCorners ?? 4,
-            tpl.defaultWidthFt, tpl.defaultHeightFt));
-        };
-        const result = ImageClass.fromURL(tpl.image, crossOriginOpt);
-        if (result && typeof result.then === "function") {
-          result.then(applyImg).catch(() => {
-            // Image failed to load — fall back to a coloured rectangle
-            const fill = `${tpl.stroke}18`;
-            const obj  = new f.Rect({ left, top, width: widthPx, height: heightPx, fill, stroke: tpl.stroke, strokeWidth: 2 });
-            const sqft = parseFloat((tpl.defaultWidthFt * tpl.defaultHeightFt).toFixed(2));
-            const lf   = parseFloat((2 * (tpl.defaultWidthFt + tpl.defaultHeightFt)).toFixed(2));
-            addFabricObj(obj, mkMeta(tpl.label, tpl.kind, sqft, lf, tpl.defaultCorners ?? 4,
-              tpl.defaultWidthFt, tpl.defaultHeightFt));
-          });
-        } else {
-          // Fabric v5 callback style
-          ImageClass.fromURL(tpl.image, applyImg, crossOriginOpt);
-        }
+    if(tpl.normalizedPoints && tpl.normalizedPoints.length>=3){
+      const pts=tpl.normalizedPoints.map(p=>({x:Math.round(p.x*widthPx),y:Math.round(p.y*heightPx)}));
+      const obj=new f.Polygon(pts,{left,top,fill:`${tpl.stroke}18`,stroke:tpl.stroke,strokeWidth:2,objectCaching:false});
+      addFabricObj(obj,mkMeta(tpl.label,tpl.kind,parseFloat((polyArea(pts)/(PPF*PPF)).toFixed(2)),parseFloat((polyPerim(pts)/PPF).toFixed(2)),tpl.defaultCorners??pts.length,tpl.defaultWidthFt,tpl.defaultHeightFt));
+    } else if(tpl.image){
+      const ImageClass=f.Image||f.FabricImage;
+      if(ImageClass?.fromURL){
+        const crossOriginOpt=tpl.image.startsWith("data:")?{}:{crossOrigin:"anonymous"};
+        const sqft=parseFloat((tpl.defaultWidthFt*tpl.defaultHeightFt).toFixed(2));
+        const lf=parseFloat((2*(tpl.defaultWidthFt+tpl.defaultHeightFt)).toFixed(2));
+        const applyImg=(img:any)=>{img.scaleToWidth(widthPx);img.set({left,top});addFabricObj(img,mkMeta(tpl.label,tpl.kind,sqft,lf,tpl.defaultCorners??4,tpl.defaultWidthFt,tpl.defaultHeightFt));};
+        const result=ImageClass.fromURL(tpl.image,crossOriginOpt);
+        if(result&&typeof result.then==="function") result.then(applyImg).catch(()=>{
+          const obj=new f.Rect({left,top,width:widthPx,height:heightPx,fill:`${tpl.stroke}18`,stroke:tpl.stroke,strokeWidth:2});
+          addFabricObj(obj,mkMeta(tpl.label,tpl.kind,sqft,lf,tpl.defaultCorners??4,tpl.defaultWidthFt,tpl.defaultHeightFt));
+        });
+        else ImageClass.fromURL(tpl.image,applyImg,crossOriginOpt);
       }
     } else {
-      // Fallback — plain rectangle
-      const fill = `${tpl.stroke}18`;
-      const obj = new f.Rect({ left, top, width: widthPx, height: heightPx, fill, stroke: tpl.stroke, strokeWidth: 2 });
-      const sqft = parseFloat((tpl.defaultWidthFt * tpl.defaultHeightFt).toFixed(2));
-      const lf   = parseFloat((2 * (tpl.defaultWidthFt + tpl.defaultHeightFt)).toFixed(2));
-      addFabricObj(obj, mkMeta(tpl.label, tpl.kind, sqft, lf, tpl.defaultCorners ?? 4,
-        tpl.defaultWidthFt, tpl.defaultHeightFt));
+      const obj=new f.Rect({left,top,width:widthPx,height:heightPx,fill:`${tpl.stroke}18`,stroke:tpl.stroke,strokeWidth:2});
+      const sqft=parseFloat((tpl.defaultWidthFt*tpl.defaultHeightFt).toFixed(2));
+      const lf=parseFloat((2*(tpl.defaultWidthFt+tpl.defaultHeightFt)).toFixed(2));
+      addFabricObj(obj,mkMeta(tpl.label,tpl.kind,sqft,lf,tpl.defaultCorners??4,tpl.defaultWidthFt,tpl.defaultHeightFt));
     }
   }
 
@@ -486,7 +658,13 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
     const c=cRef.current;if(!c)return;
     const obj=c.getActiveObject();if(!obj)return;
     const id=obj._shapeId;
-    if(id){removeDimLabels(id);delete shapesRef.current[id];setMetas(p=>{const n={...p};delete n[id];return n;});if(selId===id)setSelId(null);}
+    if(id){
+      removeDimLabels(id);
+      removeBackSplash(id);
+      delete shapesRef.current[id];
+      setMetas(p=>{const n={...p};delete n[id];return n;});
+      if(selId===id)setSelId(null);
+    }
     c.remove(obj);c.renderAll();
   }
 
@@ -540,9 +718,11 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
   }
 
   // ── Derived ───────────────────────────────────────────────────────
-  const selMeta = selId ? metas[selId] : null;
-  const totSqft = Object.values(metas).reduce((s,m)=>s+(m.kind!=="cutout"?m.sqft:0),0);
-  const totCost = Object.values(metas).reduce((s,m)=>s+calcCost(m,rates),0);
+  const selMeta  = selId ? metas[selId] : null;
+  // Total sqft includes countertop/island sqft + backsplash area from each shape
+  const totSqft  = Object.values(metas).reduce((s,m) =>
+    s + (m.kind !== "cutout" ? m.sqft : 0) + backSqft(m), 0);
+  const totCost  = Object.values(metas).reduce((s,m) => s + calcCost(m, rates), 0);
 
   function showPopup(ok:boolean,msg:string){setPopup({ok,msg});setTimeout(()=>setPopup(null),4000);}
 
@@ -554,17 +734,22 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
     try{
       const shapesWithCost=Object.values(metas).map(m=>({...m,shapeCost:calcCost(m,rates)}));
 
-      // Capture canvas image — temporarily hide dim labels and grid
-      const dimObjs=Object.values(dimLabelsRef.current).flatMap(d=>[d.wObj,d.hObj]).filter(Boolean);
-      dimObjs.forEach(o=>{try{o.set("visible",false);}catch{}});
+      // Capture canvas image — hide dim labels and backsplash overlays for clean PNG
+      const dimObjs = Object.values(dimLabelsRef.current).flatMap(d=>[d.wObj,d.hObj]).filter(Boolean);
+      const bsObjs  = Object.values(backSplashObjsRef.current).flatMap(bs=>[bs.rect,bs.label]).filter(Boolean);
+      [...dimObjs,...bsObjs].forEach(o=>{try{o.set("visible",false);}catch{}});
       c.renderAll();
       let imageDataUrl="";
       try{ imageDataUrl=c.toDataURL({format:"png",multiplier:1}); }catch{}
-      dimObjs.forEach(o=>{try{o.set("visible",true);}catch{}});
+      [...dimObjs,...bsObjs].forEach(o=>{try{o.set("visible",true);}catch{}});
       c.renderAll();
 
-      // Exclude dim labels from canvas JSON
+      // Remove backsplash overlays from canvas before JSON serialization (re-created on load from meta)
+      bsObjs.forEach(o=>{try{c.remove(o);}catch{}});
       const json=JSON.stringify(c.toJSON(["_shapeId","isGrid","_isDimLabel"]));
+      // Restore backsplash overlays
+      bsObjs.forEach(o=>{try{c.add(o);}catch{}});
+      c.renderAll();
 
       const body={
         canvas_json:json,
@@ -636,12 +821,16 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
         {/* Add Shape — built-ins */}
         <div style={S.sec}>
           <div style={S.title}>Add Shape</div>
-          {([["Straight Top",addRect,"#D4AF37"],["Island",addIsland,"#60a5fa"],["L-Shape",addLShape,"#a855f7"],["U-Shape",addUShape,"#fbbf24"],["Sink Cutout",addSink,"#f97316"],["Seam Line",addSeam,"#eab308"]] as [string,(()=>void),string][]).map(([lbl,fn,col])=>(
-            <button key={lbl} style={S.shapeBtn(col)} disabled={!ready} onClick={fn}>+ {lbl}</button>
+          {([["Straight Top","rect","#D4AF37"],["Island","island","#60a5fa"],["L-Shape","lshape","#a855f7"],["U-Shape","ushape","#fbbf24"],["Sink Cutout","sink","#f97316"]] as [string,string,string][]).map(([lbl,kind,col])=>(
+            <button key={lbl} style={{...S.shapeBtn(col),background:isPlacing===kind?`${col}20`:"transparent"}}
+              disabled={!ready} onClick={()=>startBuiltinPlacement(kind)}>
+              {isPlacing===kind?"📍":"+"} {lbl}
+            </button>
           ))}
+          <button style={S.shapeBtn("#eab308")} disabled={!ready} onClick={addSeam}>+ Seam Line</button>
         </div>
 
-        {/* Custom shape templates from DB */}
+        {/* Custom shape templates from DB — grouped by kind (sub-branches) */}
         {dbShapes.length > 0 && (
           <div style={S.sec}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
@@ -663,38 +852,74 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
                   style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"#475569",cursor:"pointer",fontSize:13,lineHeight:1}}>✕</button>
               )}
             </div>
-            {/* Grid */}
+            {/* Grouped by kind */}
             {(()=>{
-              const filtered=dbShapes.filter(t=>t.label.toLowerCase().includes(shapeSearch.toLowerCase()));
-              return filtered.length===0?(
+              const kindMeta: Record<string,{label:string;color:string}> = {
+                countertop: {label:"Countertops", color:"#D4AF37"},
+                island:     {label:"Islands",     color:"#60a5fa"},
+                backsplash: {label:"Backsplash",  color:"#a855f7"},
+                cutout:     {label:"Cutouts",     color:"#f97316"},
+              };
+              const filtered = dbShapes.filter(t=>t.label.toLowerCase().includes(shapeSearch.toLowerCase()));
+              if (filtered.length === 0) return (
                 <div style={{fontSize:11,color:"#475569",textAlign:"center",padding:"10px 0"}}>No shapes match &ldquo;{shapeSearch}&rdquo;</div>
-              ):(
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4}}>
-                  {filtered.map(tpl=>(
-                    <button key={tpl.id} disabled={!ready} onClick={()=>addTemplateShape(tpl)}
-                      title={`Add ${tpl.label}`}
-                      style={{
-                        background:"#060d18",border:`1px solid ${tpl.stroke}40`,
-                        borderRadius:6,padding:"4px 3px",cursor:"pointer",
-                        display:"flex",flexDirection:"column",alignItems:"center",gap:3,
-                        transition:"border-color .15s",
-                      }}
-                      onMouseEnter={e=>(e.currentTarget.style.borderColor=tpl.stroke)}
-                      onMouseLeave={e=>(e.currentTarget.style.borderColor=`${tpl.stroke}40`)}>
-                      {tpl.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={tpl.image} alt={tpl.label}
-                          style={{width:"100%",height:42,objectFit:"contain",filter:"brightness(0.85) saturate(0.7)"}}/>
-                      ) : (
-                        <div style={{width:"100%",height:42,background:`${tpl.stroke}18`,borderRadius:4,
-                          display:"flex",alignItems:"center",justifyContent:"center",
-                          fontSize:18,color:tpl.stroke}}>⬜</div>
-                      )}
-                      <span style={{fontSize:9,color:"#9ca3af",lineHeight:1.2,textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",width:"100%"}}>
-                        {tpl.label}
-                      </span>
-                    </button>
-                  ))}
+              );
+              // Group filtered shapes by kind
+              const grouped: Record<string, ShapeTemplate[]> = {};
+              filtered.forEach(t => { if (!grouped[t.kind]) grouped[t.kind] = []; grouped[t.kind].push(t); });
+              return (
+                <div>
+                  {Object.entries(grouped).map(([kind, shapes])=>{
+                    const km = kindMeta[kind] ?? {label: kind, color:"#9ca3af"};
+                    const isOpen = kindGroupOpen[kind] !== false;
+                    return (
+                      <div key={kind} style={{marginBottom:4}}>
+                        {/* Sub-branch header */}
+                        <button
+                          onClick={()=>setKindGroupOpen(o=>({...o,[kind]:!isOpen}))}
+                          style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",
+                            padding:"4px 6px",borderRadius:4,border:"none",cursor:"pointer",
+                            background:`${km.color}10`,marginBottom:isOpen?4:0}}>
+                          <span style={{fontSize:9,fontWeight:700,color:km.color,letterSpacing:"0.06em",textTransform:"uppercase" as const}}>
+                            {km.label} ({shapes.length})
+                          </span>
+                          <span style={{fontSize:9,color:km.color}}>{isOpen?"▴":"▾"}</span>
+                        </button>
+                        {isOpen && (
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,paddingLeft:2}}>
+                            {shapes.map(tpl=>(
+                              <button key={tpl.id} disabled={!ready} onClick={()=>startTemplatePlacement(tpl)}
+                                title={`${tpl.label} — ${(tpl.defaultWidthFt*12).toFixed(0)}" × ${(tpl.defaultHeightFt*12).toFixed(0)}"`}
+                                style={{
+                                  background:"#060d18",border:`1px solid ${tpl.stroke}40`,
+                                  borderRadius:6,padding:"4px 3px",cursor:"pointer",
+                                  display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+                                  transition:"border-color .15s",
+                                }}
+                                onMouseEnter={e=>(e.currentTarget.style.borderColor=tpl.stroke)}
+                                onMouseLeave={e=>(e.currentTarget.style.borderColor=`${tpl.stroke}40`)}>
+                                {tpl.image ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={tpl.image} alt={tpl.label}
+                                    style={{width:"100%",height:40,objectFit:"contain",filter:"brightness(0.85) saturate(0.7)"}}/>
+                                ) : (
+                                  <div style={{width:"100%",height:40,background:`${tpl.stroke}18`,borderRadius:4,
+                                    display:"flex",alignItems:"center",justifyContent:"center",
+                                    fontSize:18,color:tpl.stroke}}>⬜</div>
+                                )}
+                                <span style={{fontSize:9,color:"#9ca3af",lineHeight:1.2,textAlign:"center" as const,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" as const,width:"100%"}}>
+                                  {tpl.label}
+                                </span>
+                                <span style={{fontSize:8,color:"#4b6080",lineHeight:1}}>
+                                  {(tpl.defaultWidthFt*12).toFixed(0)}"×{(tpl.defaultHeightFt*12).toFixed(0)}"
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })()}
@@ -740,9 +965,21 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
 
       {/* ── CANVAS ── */}
       <div style={{flex:1,display:"flex",flexDirection:"column",background:"#060d18",overflow:"hidden"}}>
+        {isPlacing && (
+          <div style={{padding:"8px 12px",background:"rgba(212,175,55,0.12)",borderBottom:"2px solid #D4AF37",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <span style={{fontSize:11,color:"#D4AF37",fontWeight:600}}>
+              📍 Placing: <strong>{isPlacing}</strong> — Click on canvas to drop &nbsp;·&nbsp; Click on a shape to center inside it
+            </span>
+            <button onClick={cancelPlacementRef.current}
+              style={{padding:"3px 10px",borderRadius:4,border:"1px solid #D4AF37",background:"transparent",color:"#D4AF37",fontSize:11,cursor:"pointer",fontWeight:600}}>
+              ✕ Cancel (Esc)
+            </button>
+          </div>
+        )}
         <div style={{padding:"6px 10px",background:"#0d1421",borderBottom:"1px solid #1a2438",display:"flex",gap:6,alignItems:"center"}}>
           <span style={{fontSize:10,color:"#374151",flex:1}}>
-            {mode==="draw"?"Click to add points • click near first point (or Close) to finish":"Click shape to select • drag to move • scroll to zoom"}
+            {isPlacing?`Move cursor over canvas — shape follows • click to place`
+              :mode==="draw"?"Click to add points • click near first point (or Close) to finish":"Click shape to select • drag to move • scroll to zoom"}
           </span>
           <button style={{padding:"4px 9px",borderRadius:5,border:"none",background:"#1f2937",color:"#f87171",fontSize:11,cursor:"pointer"}} onClick={deleteSelected} disabled={!selId}>Delete</button>
           <button onClick={handleApplyToQuote} disabled={!ready||saving} style={{padding:"5px 14px",borderRadius:6,border:"none",fontSize:12,fontWeight:700,cursor:"pointer",
@@ -751,10 +988,10 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
           </button>
         </div>
         <div style={{flex:1,overflow:"auto",padding:6,display:"flex",alignItems:"flex-start"}}>
-          <canvas ref={canvasRef} style={{cursor:mode==="draw"?"crosshair":"default",borderRadius:6}}/>
+          <canvas ref={canvasRef} style={{cursor:isPlacing?"cell":mode==="draw"?"crosshair":"default",borderRadius:6}}/>
         </div>
         <div style={{padding:"6px 12px",background:"#0d1421",borderTop:"1px solid #1a2438",display:"flex",gap:20}}>
-          <div><span style={{fontSize:10,color:"#4b6080"}}>Total Area: </span><span style={{fontSize:13,fontWeight:700,color:"#D4AF37"}}>{totSqft.toFixed(2)} sqft</span></div>
+          <div><span style={{fontSize:10,color:"#4b6080"}}>Total Area: </span><span style={{fontSize:13,fontWeight:700,color:"#D4AF37"}}>{totSqft.toFixed(2)} sqft</span><span style={{fontSize:9,color:"#4b6080",marginLeft:4}}>(incl. backsplash)</span></div>
           <div><span style={{fontSize:10,color:"#4b6080"}}>Shapes: </span><span style={{fontSize:13,fontWeight:700,color:"#fff"}}>{Object.keys(metas).length}</span></div>
           <div><span style={{fontSize:10,color:"#4b6080"}}>Est. Total: </span><span style={{fontSize:13,fontWeight:700,color:"#D4AF37"}}>${totCost.toFixed(2)}</span></div>
         </div>
@@ -812,33 +1049,75 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
                 <div style={{flex:1}}>
                   <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Width (in)</div>
                   <input type="number" style={S.inp} step="0.125" min="0.125"
-                    value={Number((selMeta.widthFt*12).toFixed(3))}
-                    onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"width",v/12);}}/>
+                    value={dimDraftW}
+                    onChange={e=>setDimDraftW(e.target.value)}
+                    onBlur={()=>{
+                      const v=parseFloat(dimDraftW);
+                      if(!isNaN(v)&&v>0){ handleDimChange(selMeta.id,"width",v/12); setDimDraftW((v).toFixed(2)); }
+                      else setDimDraftW((selMeta.widthFt*12).toFixed(2));
+                    }}
+                    onKeyDown={e=>{ if(e.key==="Enter"){const v=parseFloat(dimDraftW);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"width",v/12);}}}
+                  />
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Height (in)</div>
                   <input type="number" style={S.inp} step="0.125" min="0.125"
-                    value={Number((selMeta.heightFt*12).toFixed(3))}
-                    onChange={e=>{const v=parseFloat(e.target.value);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"height",v/12);}}/>
+                    value={dimDraftH}
+                    onChange={e=>setDimDraftH(e.target.value)}
+                    onBlur={()=>{
+                      const v=parseFloat(dimDraftH);
+                      if(!isNaN(v)&&v>0){ handleDimChange(selMeta.id,"height",v/12); setDimDraftH((v).toFixed(2)); }
+                      else setDimDraftH((selMeta.heightFt*12).toFixed(2));
+                    }}
+                    onKeyDown={e=>{ if(e.key==="Enter"){const v=parseFloat(dimDraftH);if(!isNaN(v)&&v>0)handleDimChange(selMeta.id,"height",v/12);}}}
+                  />
                 </div>
               </div>
-              <div style={S.row}><span style={S.lbl}>Area</span><span style={{...S.val,color:"#D4AF37"}}>{selMeta.sqft.toFixed(4)} sqft</span></div>
-              <div style={S.row}><span style={S.lbl}>Perimeter</span><span style={S.val}>{(selMeta.perimLf*12).toFixed(2)}"</span></div>
-              <div style={S.row}><span style={S.lbl}>W</span><span style={S.val}>{fmtInches(selMeta.widthFt*PPF)}</span></div>
-              <div style={S.row}><span style={S.lbl}>H</span><span style={S.val}>{fmtInches(selMeta.heightFt*PPF)}</span></div>
+              <div style={S.row}>
+                <span style={S.lbl}>Width</span>
+                <span style={S.val}>{(selMeta.widthFt*12).toFixed(2)}"</span>
+              </div>
+              <div style={S.row}>
+                <span style={S.lbl}>Height</span>
+                <span style={S.val}>{(selMeta.heightFt*12).toFixed(2)}"</span>
+              </div>
+              <div style={S.row}><span style={S.lbl}>Countertop area</span><span style={{...S.val,color:"#D4AF37"}}>{selMeta.sqft.toFixed(3)} sqft</span></div>
+              {selMeta.hasBack&&(
+                <div style={S.row}>
+                  <span style={S.lbl}>+ Backsplash area</span>
+                  <span style={{...S.val,color:"#a78bfa"}}>{backSqft(selMeta).toFixed(3)} sqft</span>
+                </div>
+              )}
+              <div style={S.row}><span style={S.lbl}>Perimeter</span><span style={S.val}>{(selMeta.perimLf*12).toFixed(1)}"</span></div>
             </div>
 
             {/* Add-ons */}
             <div style={S.sec}>
               <div style={S.title}>Add-ons</div>
               <label style={{display:"flex",alignItems:"center",gap:6,marginBottom:5,cursor:"pointer"}}>
-                <input type="checkbox" checked={selMeta.hasBack} onChange={e=>updMeta(selMeta.id,{hasBack:e.target.checked})}/>
+                <input type="checkbox" checked={selMeta.hasBack} onChange={e=>updMeta(selMeta.id,{hasBack:e.target.checked,backHeightIn:selMeta.backHeightIn??4})}/>
                 <span style={{fontSize:11,color:"#6b7280"}}>Backsplash</span>
               </label>
               {selMeta.hasBack&&(
-                <div style={{marginLeft:16,marginBottom:4}}>
-                  <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Backsplash (in)</div>
-                  <input type="number" step="0.5" min="0" style={{...S.inp,width:70}} value={Number((selMeta.backLf*12).toFixed(2))} onChange={e=>updMeta(selMeta.id,{backLf:Number(e.target.value)/12})}/>
+                <div style={{marginLeft:16,marginBottom:6,display:"flex",flexDirection:"column",gap:4}}>
+                  <div>
+                    <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Height</div>
+                    <select style={{...S.inp,width:"100%"}} value={selMeta.backHeightIn??4}
+                      onChange={e=>updMeta(selMeta.id,{backHeightIn:Number(e.target.value)})}>
+                      {BACKSPLASH_HEIGHTS.map(h=>(
+                        <option key={h} value={h}>{h}"</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:9,color:"#4b6080",marginBottom:2}}>Length (in)</div>
+                    <input type="number" step="1" min="0" style={{...S.inp}}
+                      value={Number((selMeta.backLf*12).toFixed(1))}
+                      onChange={e=>updMeta(selMeta.id,{backLf:Number(e.target.value)/12})}/>
+                  </div>
+                  <div style={{fontSize:9,color:"#374151"}}>
+                    Area: {(selMeta.backLf*(selMeta.backHeightIn??4)/12).toFixed(2)} sqft
+                  </div>
                 </div>
               )}
               {[["Corners","corners"],["Sink cutouts","cutouts"]].map(([lbl,k])=>(
@@ -857,17 +1136,30 @@ export function QuoteDrawingCanvas({ quoteId, initialLayout, onApplied }: Props)
             <div style={S.sec}>
               <div style={S.title}>Cost Breakdown</div>
               {(()=>{
-                const mat=selMeta.kind!=="cutout"?selMeta.sqft*(selMeta.productCostPerSqft??0):0;
-                const cl=selMeta.corners*rates.cornerEach;
-                const cut=selMeta.cutouts*rates.sinkEach;
-                const bl=selMeta.hasBack?selMeta.backLf*rates.backPerLf:0;
-                const total=mat+cl+cut+bl;
+                const costPerSqft = selMeta.productCostPerSqft ?? 0;
+                const mat         = selMeta.kind !== "cutout" ? selMeta.sqft * costPerSqft : 0;
+                const bsqft       = backSqft(selMeta);
+                const backMat     = selMeta.hasBack ? bsqft * costPerSqft : 0;
+                const backLabour  = selMeta.hasBack ? selMeta.backLf * rates.backPerLf : 0;
+                const cl          = selMeta.corners  * rates.cornerEach;
+                const cut         = selMeta.cutouts  * rates.sinkEach;
+                const total       = mat + backMat + backLabour + cl + cut;
+                const noProd      = selMeta.kind !== "cutout" && !selMeta.productId;
                 return(<>
-                  {mat>0&&<div style={S.row}><span style={S.lbl}>Material ({selMeta.productName||"no product"})</span><span style={S.val}>${mat.toFixed(2)}</span></div>}
-                  {mat===0&&selMeta.kind!=="cutout"&&<div style={{fontSize:10,color:"#6b7280",marginBottom:4}}>Select a product to calculate material cost</div>}
-                  {cl>0&&<div style={S.row}><span style={S.lbl}>Corners ×{selMeta.corners}</span><span style={S.val}>${cl.toFixed(2)}</span></div>}
-                  {cut>0&&<div style={S.row}><span style={S.lbl}>Sink cutouts ×{selMeta.cutouts}</span><span style={S.val}>${cut.toFixed(2)}</span></div>}
-                  {bl>0&&<div style={S.row}><span style={S.lbl}>Backsplash {(selMeta.backLf*12).toFixed(1)}"</span><span style={S.val}>${bl.toFixed(2)}</span></div>}
+                  {noProd && <div style={{fontSize:10,color:"#6b7280",marginBottom:4}}>Select a product to calculate material cost</div>}
+                  {mat>0  && <div style={S.row}><span style={S.lbl}>Countertop material<br/><span style={{color:"#374151"}}>{selMeta.sqft.toFixed(3)} sqft × ${costPerSqft.toFixed(2)}</span></span><span style={S.val}>${mat.toFixed(2)}</span></div>}
+                  {selMeta.hasBack&&(<>
+                    <div style={S.row}>
+                      <span style={S.lbl}>
+                        Backsplash material<br/>
+                        <span style={{color:"#374151"}}>{bsqft.toFixed(3)} sqft ({(selMeta.backLf*12).toFixed(1)}" L × {selMeta.backHeightIn??4}" H)</span>
+                      </span>
+                      <span style={S.val}>${backMat.toFixed(2)}</span>
+                    </div>
+                    {backLabour>0&&<div style={S.row}><span style={S.lbl}>Backsplash labour ({(selMeta.backLf*12).toFixed(1)}")</span><span style={S.val}>${backLabour.toFixed(2)}</span></div>}
+                  </>)}
+                  {cl>0  && <div style={S.row}><span style={S.lbl}>Corners ×{selMeta.corners}</span><span style={S.val}>${cl.toFixed(2)}</span></div>}
+                  {cut>0 && <div style={S.row}><span style={S.lbl}>Sink cutouts ×{selMeta.cutouts}</span><span style={S.val}>${cut.toFixed(2)}</span></div>}
                   <div style={{...S.row,borderTop:"1px solid #1a2438",paddingTop:6,marginTop:4}}>
                     <span style={{fontSize:12,fontWeight:700,color:"#e2e8f0"}}>Shape Total</span>
                     <span style={{fontSize:13,fontWeight:700,color:"#D4AF37"}}>${total.toFixed(2)}</span>

@@ -32,8 +32,8 @@ const EMPTY_FORM = {
   name: "",
   kind: "countertop",
   stroke_color: "#D4AF37",
-  default_width_ft: "2.50",
-  default_height_ft: "1.00",
+  default_width_in:  "30",   // inches — e.g. 30" = 2.5 ft
+  default_height_in: "12",   // inches — e.g. 12" = 1.0 ft
   default_corners: "4",
   normalized_points_raw: "",
   image_data: null as string | null,
@@ -102,10 +102,10 @@ export default function ShapeLibraryPage() {
 
   async function handleSave() {
     if (!form.name.trim()) { notify(false, "Shape name is required."); return; }
-    const widthFt  = parseFloat(form.default_width_ft);
-    const heightFt = parseFloat(form.default_height_ft);
-    if (isNaN(widthFt)  || widthFt  <= 0) { notify(false, "Width must be a positive number."); return; }
-    if (isNaN(heightFt) || heightFt <= 0) { notify(false, "Height must be a positive number."); return; }
+    const widthIn  = parseFloat(form.default_width_in);
+    const heightIn = parseFloat(form.default_height_in);
+    if (isNaN(widthIn)  || widthIn  <= 0) { notify(false, "Width must be a positive number (in inches)."); return; }
+    if (isNaN(heightIn) || heightIn <= 0) { notify(false, "Height must be a positive number (in inches)."); return; }
 
     let normalizedPoints = null;
     if (form.normalized_points_raw.trim()) {
@@ -120,8 +120,8 @@ export default function ShapeLibraryPage() {
         kind:              form.kind,
         stroke_color:      form.stroke_color,
         image_data:        form.image_data,
-        default_width_ft:  widthFt,
-        default_height_ft: heightFt,
+        default_width_ft:  widthIn  / 12,   // store as feet in DB
+        default_height_ft: heightIn / 12,   // store as feet in DB
         default_corners:   parseInt(form.default_corners) || 4,
         normalized_points: normalizedPoints,
       };
@@ -228,21 +228,21 @@ export default function ShapeLibraryPage() {
             {/* Width */}
             <div>
               <label className="text-xs font-semibold" style={{ color:"var(--text-muted)", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>
-                Default Width (ft)
+                Default Width (inches)
               </label>
-              <input className="input" type="number" step="0.01" min="0.01" placeholder="2.50"
-                value={form.default_width_ft}
-                onChange={e => setForm(f => ({ ...f, default_width_ft: e.target.value }))} />
+              <input className="input" type="number" step="0.125" min="0.125" placeholder="e.g. 30"
+                value={form.default_width_in}
+                onChange={e => setForm(f => ({ ...f, default_width_in: e.target.value }))} />
             </div>
 
             {/* Height */}
             <div>
               <label className="text-xs font-semibold" style={{ color:"var(--text-muted)", display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.05em" }}>
-                Default Height (ft)
+                Default Height (inches)
               </label>
-              <input className="input" type="number" step="0.01" min="0.01" placeholder="1.00"
-                value={form.default_height_ft}
-                onChange={e => setForm(f => ({ ...f, default_height_ft: e.target.value }))} />
+              <input className="input" type="number" step="0.125" min="0.125" placeholder="e.g. 12"
+                value={form.default_height_in}
+                onChange={e => setForm(f => ({ ...f, default_height_in: e.target.value }))} />
             </div>
 
             {/* Corners */}
@@ -351,7 +351,7 @@ export default function ShapeLibraryPage() {
             {/* Preview of the colour/name */}
             <div style={{ display:"flex", alignItems:"center", gap:8, marginLeft:"auto" }}>
               <div style={{ width:12, height:12, borderRadius:"50%", background:form.stroke_color }} />
-              <span style={{ fontSize:12, color:"#9ca3af" }}>{form.name || "Shape name"} · {form.default_width_ft} × {form.default_height_ft} ft</span>
+              <span style={{ fontSize:12, color:"#9ca3af" }}>{form.name || "Shape name"} · {form.default_width_in}" × {form.default_height_in}"</span>
             </div>
           </div>
         </div>
@@ -370,8 +370,22 @@ export default function ShapeLibraryPage() {
           <button className="btn-primary" onClick={() => setFormOpen(true)}>+ Add First Shape</button>
         </div>
       ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:16 }}>
-          {templates.map(t => (
+        <div>
+          {(()=>{
+            const kindOrder = ["countertop","island","backsplash","cutout"];
+            const kindLabel: Record<string,string> = { countertop:"Countertops", island:"Islands", backsplash:"Backsplash", cutout:"Cutouts" };
+            const grouped: Record<string,ShapeTemplate[]> = {};
+            templates.forEach(t => { if(!grouped[t.kind]) grouped[t.kind]=[]; grouped[t.kind].push(t); });
+            const orderedKinds = [...kindOrder.filter(k=>grouped[k]), ...Object.keys(grouped).filter(k=>!kindOrder.includes(k))];
+            return orderedKinds.map(kind => (
+              <div key={kind} style={{ marginBottom:28 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+                  <div style={{ width:4, height:18, borderRadius:2, background: kindColor[kind]??kindColor.countertop }}/>
+                  <h3 style={{ fontSize:13, fontWeight:700, color:"#fff", margin:0 }}>{kindLabel[kind]??kind}</h3>
+                  <span style={{ fontSize:11, color:"var(--text-muted)" }}>({grouped[kind].length})</span>
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:16 }}>
+          {grouped[kind].map(t => (
             <div key={t.id} className="card" style={{ padding:0, overflow:"hidden" }}>
 
               {/* Image / colour preview */}
@@ -413,7 +427,7 @@ export default function ShapeLibraryPage() {
                   </div>
                 </div>
                 <div style={{ fontSize:11, color:"var(--text-muted)" }}>
-                  {Number(t.default_width_ft).toFixed(2)} ft × {Number(t.default_height_ft).toFixed(2)} ft
+                  {(Number(t.default_width_ft)*12).toFixed(1)}" × {(Number(t.default_height_ft)*12).toFixed(1)}"
                 </div>
                 <div style={{ fontSize:10, color:"#374151", marginTop:2 }}>
                   {Number(t.default_corners)} corners
@@ -439,6 +453,10 @@ export default function ShapeLibraryPage() {
               </div>
             </div>
           ))}
+                </div>
+              </div>
+            ));
+          })()}
         </div>
       )}
 
