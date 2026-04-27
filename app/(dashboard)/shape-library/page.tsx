@@ -21,6 +21,13 @@ const KIND_OPTIONS = [
   { value: "island",     label: "Island" },
   { value: "backsplash", label: "Backsplash" },
   { value: "cutout",     label: "Cutout" },
+  { value: "shape",      label: "Shape" },
+  { value: "edges",      label: "Edges" },
+  { value: "sink",       label: "Sink" },
+  { value: "corner_bumpout", label: "Corner/Bumpout" },
+  { value: "labor",      label: "Labor" },
+  { value: "extra_services", label: "Extra Services" },
+  { value: "slab",       label: "Slab" },
 ];
 
 const PRESET_COLORS = [
@@ -80,6 +87,44 @@ const DEFAULT_BULK_W      = 30;
 const DEFAULT_BULK_H      = 24;
 const DEFAULT_BULK_COLOR  = "#D4AF37";
 
+function normalizeKind(kindRaw: string): string {
+  const normalized = kindRaw.toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (!normalized) return DEFAULT_BULK_KIND;
+
+  const kindAliases: Record<string, string> = {
+    countertop: "countertop",
+    countertops: "countertop",
+    shape: "shape",
+    shapes: "shape",
+    island: "island",
+    islands: "island",
+    backsplash: "backsplash",
+    backsplashes: "backsplash",
+    cutout: "cutout",
+    cutouts: "cutout",
+    sink: "sink",
+    sinks: "sink",
+    corner: "corner_bumpout",
+    corners: "corner_bumpout",
+    bumpout: "corner_bumpout",
+    bumpouts: "corner_bumpout",
+    corner_bumpout: "corner_bumpout",
+    corner_bumpouts: "corner_bumpout",
+    cornerbumpout: "corner_bumpout",
+    cornerbumpouts: "corner_bumpout",
+    edge: "edges",
+    edges: "edges",
+    labor: "labor",
+    extra_service: "extra_services",
+    extra_services: "extra_services",
+    extraservices: "extra_services",
+    slab: "slab",
+    default: "slab",
+  };
+
+  return kindAliases[normalized] ?? DEFAULT_BULK_KIND;
+}
+
 /** Parse a raw CSV string into BulkRows. First row treated as header if it contains non-numeric name. */
 function parseCsv(raw: string): BulkRow[] {
   const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
@@ -103,11 +148,10 @@ function parseCsv(raw: string): BulkRow[] {
     const cells = line.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(c => c.replace(/^"|"$/g, "").trim());
     const get   = (key: string, fallback = "") => cells[idx(key)] ?? fallback;
     const nameVal = get("name") || get("shape name") || get("shape") || cells[0] || "";
-    const kindRaw = (get("kind") || get("type") || "").toLowerCase();
-    const validKinds = ["countertop","island","backsplash","cutout"];
+    const kindRaw = get("kind") || get("type") || "";
     return {
       name:        nameVal,
-      kind:        validKinds.includes(kindRaw) ? kindRaw : DEFAULT_BULK_KIND,
+      kind:        normalizeKind(kindRaw),
       width_in:    parseFloat(get("width_in") || get("width") || get("w")) || DEFAULT_BULK_W,
       height_in:   parseFloat(get("height_in") || get("height") || get("h")) || DEFAULT_BULK_H,
       stroke_color: get("stroke_color") || get("color") || get("colour") || DEFAULT_BULK_COLOR,
@@ -125,6 +169,7 @@ export default function ShapeLibraryPage() {
   const [formOpen, setFormOpen]   = useState(false);
   const [error, setError]         = useState<string | null>(null);
   const [success, setSuccess]     = useState<string | null>(null);
+  const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // ── Bulk import state ──
@@ -187,16 +232,18 @@ export default function ShapeLibraryPage() {
         default_corners:   parseInt(form.default_corners) || 4,
         normalized_points: normalizedPoints,
       };
-      const res = await fetch("/api/shape-templates", {
-        method: "POST",
+      const isEditing = Boolean(editingShapeId);
+      const res = await fetch(isEditing ? `/api/shape-templates/${editingShapeId}` : "/api/shape-templates", {
+        method: isEditing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Save failed");
-      notify(true, `"${form.name}" added to Shape Library!`);
+      notify(true, isEditing ? `"${form.name}" updated.` : `"${form.name}" added to Shape Library!`);
       setForm({ ...EMPTY_FORM });
       setFormOpen(false);
+      setEditingShapeId(null);
       load();
     } catch (e: any) {
       notify(false, e.message);
@@ -218,6 +265,22 @@ export default function ShapeLibraryPage() {
     } finally {
       setDeleting(null);
     }
+  }
+
+  function startEdit(t: ShapeTemplate) {
+    setBulkOpen(false);
+    setEditingShapeId(t.id);
+    setForm({
+      name: t.name,
+      kind: t.kind || "countertop",
+      stroke_color: t.stroke_color || "#D4AF37",
+      default_width_in: String(((Number(t.default_width_ft) || 0) * 12).toFixed(3)).replace(/\.?0+$/, ""),
+      default_height_in: String(((Number(t.default_height_ft) || 0) * 12).toFixed(3)).replace(/\.?0+$/, ""),
+      default_corners: String(t.default_corners ?? 4),
+      normalized_points_raw: t.normalized_points ? JSON.stringify(t.normalized_points, null, 2) : "",
+      image_data: t.image_data ?? null,
+    });
+    setFormOpen(true);
   }
 
   // ── Bulk: process multiple images dropped/selected ──
@@ -336,7 +399,14 @@ export default function ShapeLibraryPage() {
             {bulkOpen ? "✕ Close Bulk Import" : "📦 Bulk Import"}
           </button>
           <button
-            onClick={() => { setFormOpen(o => !o); setBulkOpen(false); }}
+            onClick={() => {
+              setFormOpen(o => !o);
+              setBulkOpen(false);
+              if (!formOpen) {
+                setEditingShapeId(null);
+                setForm({ ...EMPTY_FORM });
+              }
+            }}
             className="btn-primary"
             style={{ display:"flex", alignItems:"center", gap:8 }}
           >
@@ -406,7 +476,7 @@ export default function ShapeLibraryPage() {
                 <strong style={{color:"#fff"}}>Column order:</strong>{" "}
                 <code style={{color:"#9ca3af",fontSize:11}}>name, kind, width_in, height_in, stroke_color</code>{" "}
                 — all columns after <em>name</em> are optional.{" "}
-                <strong style={{color:"#fff"}}>Kind</strong> options: countertop · island · backsplash · cutout
+                <strong style={{color:"#fff"}}>Kind</strong> options: countertop · island · backsplash · cutout · shape · edges · sink · corner/bumpout · labor · extra services · slab
               </div>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
                 <button onClick={() => bulkCsvRef.current?.click()}
@@ -537,7 +607,7 @@ export default function ShapeLibraryPage() {
       {/* ── ADD FORM ── */}
       {formOpen && (
         <div className="card" style={{ border:"1px solid #2a3550" }}>
-          <h2 className="text-sm font-semibold text-white mb-5">New Shape</h2>
+          <h2 className="text-sm font-semibold text-white mb-5">{editingShapeId ? "Edit Shape" : "New Shape"}</h2>
 
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:16 }}>
 
@@ -678,9 +748,9 @@ export default function ShapeLibraryPage() {
               disabled={saving}
               style={{ minWidth:140 }}
             >
-              {saving ? "Saving…" : "💾 Save Shape"}
+              {saving ? "Saving…" : editingShapeId ? "💾 Update Shape" : "💾 Save Shape"}
             </button>
-            <button onClick={() => { setForm({ ...EMPTY_FORM }); setFormOpen(false); }}
+            <button onClick={() => { setForm({ ...EMPTY_FORM }); setFormOpen(false); setEditingShapeId(null); }}
               style={{ padding:"8px 16px", borderRadius:8, background:"transparent", color:"var(--text-muted)", border:"1px solid #2a2a2a", fontSize:13, cursor:"pointer" }}>
               Cancel
             </button>
@@ -772,12 +842,22 @@ export default function ShapeLibraryPage() {
               </div>
 
               {/* Delete */}
-              <div style={{ padding:"0 14px 12px" }}>
+              <div style={{ padding:"0 14px 12px", display:"flex", gap:8 }}>
+                <button
+                  onClick={() => startEdit(t)}
+                  style={{
+                    flex:1, padding:"6px", borderRadius:6, fontSize:11, fontWeight:600,
+                    background:"#1a2438", color:"#e2e8f0", border:"1px solid #2a3550",
+                    cursor:"pointer", transition:"all .15s",
+                  }}
+                >
+                  ✏ Edit
+                </button>
                 <button
                   onClick={() => handleDelete(t.id, t.name)}
                   disabled={deleting === t.id}
                   style={{
-                    width:"100%", padding:"6px", borderRadius:6, fontSize:11, fontWeight:600,
+                    flex:1, padding:"6px", borderRadius:6, fontSize:11, fontWeight:600,
                     background:"transparent", color:"#f87171", border:"1px solid #ef444430",
                     cursor:"pointer", transition:"all .15s",
                   }}
